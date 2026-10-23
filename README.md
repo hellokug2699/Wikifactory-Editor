@@ -142,12 +142,13 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.1.8-android.ap
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
+c8d3e31a5d7b47ab19abe0a31b51f3c401523af439cd80842f1cec80d7b6ff34  Wikifactory-Editor-v1.1.9-android-release.apk
 9f5f1d3d1bf589062115fff9859bc59051f877e60d2bbcecff5048b1b88d0caf  Wikifactory-Editor-v1.1.9-android.apk
 9685b4e2b76721f716bc8111262d36d43a9a50f58b6136bc724b906afa0c4094  Wikifactory-Editor-v1.1.9-windows-x64.exe
 502294e1aaff7f1852b04535a34e61bf829736750d38f7127b5ac15cac543025  Wikifactory-Editor-v1.1.9-web.zip
 ```
 
-签名版 APK 由 CI 在发布 Release 后附加，其 SHA-256 见 Release 资产中的 `SHA256SUMS.txt`。
+签名版 APK 的签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
 
 ## 功能
 
