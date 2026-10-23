@@ -12,3 +12,16 @@ android/app/src/main/assets/
 dist/web/
 *.log
 .DS_Store
+
+# Secrets / signing material — never commit
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+.env
+.env.*
+*.secret
+*.idsig
