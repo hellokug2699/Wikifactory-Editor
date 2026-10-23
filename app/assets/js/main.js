@@ -10,6 +10,7 @@ import {
   setYamlField, splitFrontmatter, summarizeIssues, validateDocument,
 } from './validate.js';
 import { GitHubClient, GitHubError } from './github.js';
+import { clearToken, loadToken, saveToken, tokenStorageKind } from './secure-token.js';
 import { buildPreview, attachToc } from './markdown.js';
 import {
   applyTheme, effectiveTheme, escape, initThemeWatcher,
@@ -59,6 +60,7 @@ const els = {
 const state = loadState();
 const assets = [];
 let sessionToken = '';
+let tokenReady = Promise.resolve();
 let dirty = false;
 let updatingForm = false;
 let lastIssues = [];
@@ -1277,7 +1279,10 @@ function openSettings() {
   body.innerHTML = `
     <div class="form-grid">
       <div class="form-note is-accent">
-        <strong>仅客户端，且仅限 Content。</strong> token 只保存在当前运行内存中，不写入 localStorage、文件或任何持久存储；关闭应用即失效。输入框禁止复制。
+        <strong>仅客户端，且仅限 Content。</strong> 勾选「记住 token」后，token 会<strong>加密</strong>保存在本机：
+        Android 使用系统 Keystore（密钥不可导出），网页版与桌面版使用 AES-256-GCM 设备绑定密钥。
+        关闭该选项则 token 只留在内存，重启后失效。
+        输入框禁止复制 / 剪切，但<strong>允许粘贴</strong>。
         编辑器被硬编码为只能访问 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code>，不会读写 Core / Alias。
       </div>
 
@@ -1300,14 +1305,19 @@ function openSettings() {
       </details>
 
       <label class="field">
-        <span class="form-label">GitHub Token（仅本次运行）</span>
+        <span class="form-label">GitHub Token</span>
         <input class="input mono token-secret" id="set-token" type="password"
                placeholder="ghp_… / github_pat_…" autocomplete="new-password"
                spellcheck="false" data-lpignore="true" data-1p-ignore="true">
-        <p class="form-help">经典 token 至少需要 <code>public_repo</code>；细粒度 token 需要 Fork 后 Content 仓库的 Contents / Pull requests 读写权限。</p>
+        <p class="form-help">经典 token 至少需要 <code>public_repo</code>；细粒度 token 需要 Fork 后 Content 仓库的 Contents / Pull requests 读写权限。支持 Ctrl/⌘+V 或长按粘贴。</p>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" id="set-remember" ${state.settings.rememberToken === false ? '' : 'checked'}>
+        <span>记住 token（加密保存在本机，下次启动自动恢复）</span>
       </label>
       <div class="button-row">
-        <button class="btn btn-small btn-danger" type="button" id="set-token-clear">清除当前 token</button>
+        <button class="btn btn-small btn-danger" type="button" id="set-token-clear">清除 token（内存与已保存）</button>
+        <span class="form-help" id="token-store-kind"></span>
       </div>
 
       <div class="pr-summary">
@@ -1329,22 +1339,37 @@ function openSettings() {
 
   const tokenInput = body.querySelector('#set-token');
   tokenInput.value = sessionToken;
+  const rememberInput = body.querySelector('#set-remember');
+  const kindLabel = body.querySelector('#token-store-kind');
+  const kind = tokenStorageKind();
+  kindLabel.textContent = kind === 'android-keystore'
+    ? '存储：Android Keystore'
+    : kind === 'webcrypto'
+      ? '存储：AES-256-GCM（设备绑定）'
+      : '加密存储不可用：token 仅本次运行有效';
+
   const blockTokenCopy = (event) => {
     event.preventDefault();
-    toast('出于安全考虑，token 输入框禁止复制。', 'info', 1800);
+    toast('出于安全考虑，token 禁止复制或剪切；粘贴不受限制。', 'info', 1800);
   };
-  for (const type of ['copy', 'cut', 'contextmenu', 'dragstart']) {
+  // Copy / cut / drag stay blocked. The context menu stays enabled because on
+  // mobile it is the only way to paste.
+  for (const type of ['copy', 'cut', 'dragstart']) {
     tokenInput.addEventListener(type, blockTokenCopy);
   }
+  tokenInput.addEventListener('paste', () => {
+    // Trim any whitespace/newlines picked up from the clipboard.
+    setTimeout(() => { tokenInput.value = tokenInput.value.replace(/\s+/g, ''); }, 0);
+  });
 
   const resultEl = body.querySelector('#set-result');
-  body.querySelector('#set-token-clear').addEventListener('click', () => {
+  body.querySelector('#set-token-clear').addEventListener('click', async () => {
     sessionToken = '';
     tokenInput.value = '';
-    tokenInput.type = 'password';
     setConnection(false, '未连接', '已清除 token');
     resultEl.hidden = true;
-    toast('已清除内存中的 token。', 'success');
+    await clearToken();
+    toast('已清除内存与本机保存的 token。', 'success');
   });
 
   body.querySelector('#set-test').addEventListener('click', async () => {
@@ -1368,27 +1393,43 @@ function openSettings() {
 
   const modal = openModal({
     title: '设置与 GitHub 连接',
-    subtitle: 'token 仅保存在内存；提交时直接创建 Content 仓库 PR',
+    subtitle: 'token 加密保存在本机；提交时直接创建 Content 仓库 PR',
     body,
     size: 'wide',
     footer: [
       { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
-      { label: '保存设置', className: 'btn-primary', onClick: () => {
+      { label: '保存设置', className: 'btn-primary', onClick: async () => {
         sessionToken = tokenInput.value.trim();
         state.settings.branch = body.querySelector('#set-branch').value.trim();
         state.settings.fontSize = Number(body.querySelector('#set-fontsize').value) || 14.5;
         state.settings.wrap = body.querySelector('#set-wrap').checked;
+        const remember = rememberInput.checked;
+        state.settings.rememberToken = remember;
         applyEditorPrefs();
         saveState(state);
-        if (!sessionToken) setConnection(false, '未连接', '未设置 token');
-        else if (!connection.ok) {
-          setConnection(false, 'Token 已设置', '已保存在内存，正在验证…');
+
+        if (!sessionToken) {
+          await clearToken();
+          setConnection(false, '未连接', '未设置 token');
+        } else if (remember) {
+          const saved = await saveToken(sessionToken, { login: connection.login });
+          if (!saved.ok) {
+            toast(`token 加密保存失败：${saved.reason || '未知原因'}；本次运行仍可使用。`, 'error', 4200);
+          }
+        } else {
+          await clearToken();
+        }
+
+        if (sessionToken && !connection.ok) {
+          setConnection(false, 'Token 已设置', '正在验证…');
           new GitHubClient(sessionToken).getUser()
             .then((user) => setConnection(true, `@${user.login}`, `已连接 @${user.login}`))
             .catch((error) => setConnection(false, '连接失败', error.message));
         }
         modal.close();
-        toast('设置已保存；token 不会写入本地存储。', 'success');
+        if (!sessionToken) toast('设置已保存；未设置 token。', 'success');
+        else if (remember) toast('设置已保存；token 已加密保存在本机。', 'success');
+        else toast('设置已保存；token 仅保留在内存。', 'success');
       } },
     ],
   });
@@ -1461,7 +1502,7 @@ toc: true
         <h3 style="font-size:13px;margin:0 0 6px">PR 流程</h3>
         <p style="margin:0;color:var(--text-soft)">每次提交都从 Content 仓库最新 <code>main</code> 创建临时分支。有写权限时直接建分支；没有写权限时自动 Fork 并向上游发起 PR。Content 仓库不要求分支与 base 保持 up-to-date。</p>
       </div>
-      <div class="form-note">安全提示：token 只保存在本机；公开仓库中不要提交任何密钥。若在共享设备使用，请关闭「记住 token」或在结束时清除。</div>
+      <div class="form-note">安全提示：勾选「记住 token」后，token 以加密形式保存在本机（Android Keystore / 其他平台 AES-256-GCM），不会出现明文；在共享设备上请关闭该选项，离开前用设置中的「清除 token」。公开仓库中不要提交任何密钥。</div>
     </div>
   `;
   const modal = openModal({
@@ -1476,6 +1517,7 @@ toc: true
 /* ------------------------------------------------------------------- PR */
 
 async function openPrDialog({ prefill = null } = {}) {
+  await tokenReady;
   if (!sessionToken) {
     toast('提交 PR 需要 GitHub token，请先在设置中填写。', 'error');
     openSettings();
@@ -1849,6 +1891,34 @@ function onKeyDown(event) {
   if (event.key === 'Escape' && window.innerWidth <= 880) closeSidebar();
 }
 
+/** Restores the encrypted token saved on this device, then verifies it. */
+async function restoreSavedToken() {
+  if (state.settings.rememberToken === false) return;
+  let saved = null;
+  try {
+    saved = await loadToken();
+  } catch (error) {
+    console.warn('[token] 恢复失败', error);
+    return;
+  }
+  if (!saved?.token) return;
+  sessionToken = saved.token;
+  setConnection(false, saved.login ? `@${saved.login}` : '已恢复 token', '已从本机加密存储恢复 token，正在验证…');
+  try {
+    const user = await new GitHubClient(sessionToken).getUser();
+    setConnection(true, `@${user.login}`, `已连接 @${user.login}（token 由本机加密存储恢复）`);
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 401) {
+      sessionToken = '';
+      await clearToken();
+      setConnection(false, 'Token 已失效', '本机保存的 token 已失效，请在设置中重新填写');
+      toast('本机保存的 token 已失效，已自动清除。', 'error', 4200);
+      return;
+    }
+    setConnection(false, '已恢复 token', error.message);
+  }
+}
+
 function restoreInitialUi() {
   els.contentPath.value = state.content.path;
   renderFmForm();
@@ -1865,7 +1935,12 @@ function restoreInitialUi() {
   updateDocMeta();
   updateStats();
 
-  setConnection(false, '未连接', 'token 仅保存在内存；每次启动都需要重新填写。公开 Content 仓库可匿名读取，PR 需要 token');
+  if (state.settings.rememberToken === false) {
+    setConnection(false, '未连接', 'token 仅保留在内存；公开 Content 仓库可匿名读取，PR 需要 token');
+  } else {
+    setConnection(false, '正在恢复 token', '正在检查本机加密保存的 token…');
+    tokenReady = restoreSavedToken();
+  }
 
   if (state.content.body.trim() || state.content.fmRaw.trim()) {
     toast('已恢复上次编辑的本地草稿。', 'info', 2400);

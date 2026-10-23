@@ -14,6 +14,7 @@ export function defaultState() {
       branch: '',
       fontSize: 14.5,
       wrap: true,
+      rememberToken: true,
       templates: {
         tableCell: '',
         imageStyle: 'wiki',
@@ -58,8 +59,9 @@ function migrate(parsed) {
   if (merged.settings) {
     delete merged.settings.repos;
     delete merged.settings.owner;
+    // Legacy plaintext tokens are always dropped; the encrypted store replaces them.
     delete merged.settings.token;
-    delete merged.settings.rememberToken;
+    if (typeof merged.settings.rememberToken !== 'boolean') merged.settings.rememberToken = true;
   }
   merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';
@@ -97,7 +99,6 @@ function storageSafe(state) {
     settings: { ...state.settings },
   };
   delete serializable.settings.token;
-  delete serializable.settings.rememberToken;
   return serializable;
 }
 

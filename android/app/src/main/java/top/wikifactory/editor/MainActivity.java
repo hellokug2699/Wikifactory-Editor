@@ -2,13 +2,18 @@ package top.wikifactory.editor;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
 import android.view.View;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
@@ -23,6 +28,14 @@ import android.widget.Toast;
 
 import androidx.webkit.WebViewAssetLoader;
 
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
 /**
  * Minimal, offline-first WebView shell.
  *
@@ -33,6 +46,9 @@ import androidx.webkit.WebViewAssetLoader;
 public class MainActivity extends Activity {
     private static final String ASSET_DOMAIN = "appassets.androidplatform.net";
     private static final int FILE_CHOOSER_REQUEST = 1001;
+    private static final String SECURE_PREFS = "wfe_secure";
+    private static final String SECURE_TOKEN_FIELD = "token_blob";
+    private static final String KEYSTORE_ALIAS = "wfe_token_key_v1";
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -116,10 +132,89 @@ public class MainActivity extends Activity {
             public void openExternal(String url) {
                 runOnUiThread(() -> MainActivity.this.openExternal(url));
             }
+
+            @JavascriptInterface
+            public String secureSet(String payload) {
+                return saveTokenEncrypted(payload);
+            }
+
+            @JavascriptInterface
+            public String secureGet() {
+                return loadTokenEncrypted();
+            }
+
+            @JavascriptInterface
+            public void secureClear() {
+                getSharedPreferences(SECURE_PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .remove(SECURE_TOKEN_FIELD)
+                        .apply();
+            }
         }, "AndroidEditor");
 
         setContentView(webView);
         webView.loadUrl("https://" + ASSET_DOMAIN + "/index.html");
+    }
+
+    /** AES-GCM key lives in the Android Keystore; only ciphertext reaches the prefs file. */
+    private SecretKey keystoreKey() throws Exception {
+        KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+        keyStore.load(null);
+        if (keyStore.containsAlias(KEYSTORE_ALIAS)) {
+            return ((KeyStore.SecretKeyEntry) keyStore.getEntry(KEYSTORE_ALIAS, null)).getSecretKey();
+        }
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(
+                KEYSTORE_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build());
+        return generator.generateKey();
+    }
+
+    private String saveTokenEncrypted(String payload) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, keystoreKey());
+            byte[] iv = cipher.getIV();
+            byte[] encrypted = cipher.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            String blob = Base64.encodeToString(iv, Base64.NO_WRAP)
+                    + ":"
+                    + Base64.encodeToString(encrypted, Base64.NO_WRAP);
+            getSharedPreferences(SECURE_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(SECURE_TOKEN_FIELD, blob)
+                    .apply();
+            return "true";
+        } catch (Exception error) {
+            return "false";
+        }
+    }
+
+    private String loadTokenEncrypted() {
+        SharedPreferences prefs = getSharedPreferences(SECURE_PREFS, Context.MODE_PRIVATE);
+        String blob = prefs.getString(SECURE_TOKEN_FIELD, "");
+        if (blob == null || blob.isEmpty()) {
+            return "";
+        }
+        try {
+            String[] parts = blob.split(":");
+            if (parts.length != 2) {
+                return "";
+            }
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    keystoreKey(),
+                    new GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
+            byte[] plain = cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP));
+            return new String(plain, StandardCharsets.UTF_8);
+        } catch (Exception error) {
+            prefs.edit().remove(SECURE_TOKEN_FIELD).apply();
+            return "";
+        }
     }
 
     private void openExternal(String url) {

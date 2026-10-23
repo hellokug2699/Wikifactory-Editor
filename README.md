@@ -6,6 +6,16 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.1.2 功能修复
+
+- **允许粘贴**：token 输入框仍禁止复制 / 剪切 / 拖拽，但支持 `Ctrl/⌘+V`、右键菜单与移动端长按粘贴（1.1.1 一并屏蔽了右键菜单，导致部分设备无法粘贴）。
+- **记住 token**：新增「记住 token」选项（默认开启），token 加密保存在本机，下次启动自动恢复并验证，无需每次重新填写。
+- **加密存储，而非明文**：token 必须先恢复才能使用，单向哈希无法满足自动登录，因此采用可逆加密：
+  - Android：AES-GCM 密钥生成在 **Android Keystore** 内，密钥不可导出；磁盘上只有密文。
+  - 网页 / Windows：WebCrypto **AES-256-GCM**，密钥由安装标识与设备特征经 PBKDF2（21 万次）派生，localStorage 中只有密文与随机 IV。
+  - 关闭「记住 token」后仍为仅内存模式；旧版本的明文 token 会在启动时被清除。
+- 版本号：**1.1.2**（Android versionCode 4）。
+
 ## v1.1.1 安全更新
 
 - **token 不落盘**：只保存在当前运行内存，不写入 localStorage / 文件；关闭应用即失效。旧版本遗留的本地 token 会在启动时被清除。
@@ -15,13 +25,13 @@
 - **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
 - 版本号：**1.1.1**（Android versionCode 3）。
 
-## 下载（v1.1.1）
+## 下载（v1.1.2）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.1-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.1/Wikifactory-Editor-v1.1.1-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.1-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.1/Wikifactory-Editor-v1.1.1-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.1-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.1/Wikifactory-Editor-v1.1.1-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.2-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.2/Wikifactory-Editor-v1.1.2-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.2-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.2/Wikifactory-Editor-v1.1.2-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.2-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.2/Wikifactory-Editor-v1.1.2-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -34,9 +44,9 @@
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-92a2dd01dfbc7ff2ce363c341273de33319b476dcc302058a8854b468b09bbfc  Wikifactory-Editor-v1.1.1-android.apk
-1ed7e66e3bbab61d038c933683bee55b5062a0577b9b0e550bcef07af1a8c7f3  Wikifactory-Editor-v1.1.1-windows-x64.exe
-8976a308c5e7b4d3f6c76f2c12099083bed35084c8e1feab3a910e602f0a8dce  Wikifactory-Editor-v1.1.1-web.zip
+b3c9643e3902e58d427706c66c09f5a6515d31524d9791970564199ba933f776  Wikifactory-Editor-v1.1.2-android.apk
+95e184f9634671c39943d151a7b642f4c1aa7d751d4e41ab643ecc344fdc1750  Wikifactory-Editor-v1.1.2-windows-x64.exe
+b06a0bf3fc4f17e4689e38faf5cf546962945fb7a1cb2a6389330cc4b456ec38  Wikifactory-Editor-v1.1.2-web.zip
 ```
 
 ## 功能
@@ -74,7 +84,7 @@
 
 ### GitHub PR（纯客户端）
 
-- token **只保存在当前运行内存**，不会写入 localStorage / 文件；关闭应用即失效。所有请求直接发往 `https://api.github.com`。
+- token 默认**加密保存在本机**（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复并验证；在设置中关闭「记住 token」则仅保留在内存。所有请求直接发往 `https://api.github.com`。
 - 目标仓库**硬编码**为 `hellokug2699/Wikifactory-Content`；设置中没有仓库输入框，网络层也会拒绝其他仓库名。
 - 有写权限时直接从最新 base 创建临时分支并提交；没有写权限时自动 Fork → 同步 Fork → 向 Content 仓库发起 PR。
 - 一次 PR 可同时提交正文与多张图片；支持 Draft PR、自定义分支名 / 提交信息 / PR 标题与说明。
@@ -141,7 +151,7 @@
 | `Wikifactory-Content`（公开） | `public_repo`（提交 PR）/ 匿名读取也可 | 目标仓库的 Contents: Read and write、Pull requests: Read and write |
 
 > 没有写权限时会自动走 Fork；Fork 由 GitHub 账户完成，公开仓库通常只需要 `public_repo`。
-> token 只存在当前运行内存，不会写入 localStorage / 文件；关闭应用后需重新填写。输入框不提供「显示」按钮，并阻止复制 / 剪切 / 右键 / 拖拽。应用没有后端，不会把 token 发往 GitHub 以外的地址。
+> token 默认加密保存在本机（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复；关闭「记住 token」后仅保留在内存。输入框不提供「显示」按钮，并阻止复制 / 剪切 / 拖拽，但**允许粘贴**。应用没有后端，不会把 token 发往 GitHub 以外的地址。
 
 ## 快捷键
 
@@ -215,7 +225,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.1-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.2-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 ```
@@ -234,8 +244,10 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 
 ## 安全说明
 
-- token 只保存在当前运行内存，不会写入 WebView / 浏览器的 localStorage 或文件；关闭应用即失效。
-- token 输入框不提供显示按钮，并阻止复制、剪切、右键菜单与拖拽；请勿自行截图或粘贴到其他位置。
+- token 默认加密保存在本机：Android 使用 Android Keystore（密钥不可导出），网页 / Windows 使用 AES-256-GCM 设备绑定密钥，存储中只有密文与随机 IV，不存在明文 token。
+- 关闭「记住 token」时 token 只留在内存；离开共享设备前请使用设置中的「清除 token」。
+- token 输入框不提供显示按钮，并阻止复制、剪切与拖拽；粘贴可用，但请勿自行截图或粘贴到其他位置。
+- 注意：网页 / Windows 的加密密钥由本机可见信息派生，能运行调试工具的攻击者仍可能解密，属于提高门槛而非硬件隔离；Android Keystore 提供真正的不可导出密钥。
 - 网络层只允许 `Wikifactory-Content`；Core / Alias 仓库名会被直接拒绝。
 - 建议为编辑器单独创建最小权限 token，并定期在 GitHub 设置中撤销。
 - 公开仓库内不要提交任何 token、密钥或个人隐私信息。
