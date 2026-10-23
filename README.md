@@ -107,6 +107,25 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.1.8-android.ap
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
 
+#### 在 GitHub Actions 中签名
+
+仓库内置 [.github/workflows/android-release.yml](.github/workflows/android-release.yml)：手动触发时构建并上传签名 APK 工件；发布 GitHub Release 时会校验标签与 `package.json` 版本一致，并把签名 APK 附加到该 Release。工作流不会生成或保存密钥，缺少 secrets 时会直接失败。
+
+在 **Settings → Secrets and variables → Actions** 添加：
+
+| Secret | 内容 | 推荐设置 |
+| --- | --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | keystore 文件的单行 base64 | `base64 -w0 release.jks`（macOS 用 `base64 -i release.jks`） |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 | 24 位以上随机字符串 |
+| `ANDROID_KEY_ALIAS` | 密钥别名 | `wikifactory` |
+| `ANDROID_KEY_PASSWORD` | 密钥密码 | 与 keystore 密码相同（PKCS12 的推荐做法） |
+
+注意事项：
+
+- 只保存 base64 文本，不要把 keystore 或密码提交到仓库；
+- 请离线备份 keystore 与密码：丢失后已安装用户无法覆盖升级，只能卸载重装；
+- 若希望敏感操作更可控，可在 Settings → Environments 新建 `release` 环境并添加 Required reviewers，再把 secrets 放在该环境下。
+
 ### 校验和
 
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
