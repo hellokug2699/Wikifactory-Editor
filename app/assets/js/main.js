@@ -7,8 +7,9 @@ import {
 } from './state.js';
 import { CodeEditor, CURSOR } from './code-editor.js';
 import {
-  CALLOUTS, COLOR_TOKENS, GAME_ICON_DIR, GAME_IMAGE_DIR, ICON_EXTENSIONS, ICON_SIZES,
-  ICON_NAME_RE, PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS,
+  AUDIO_EXTENSIONS, CALLOUTS, COLOR_TOKENS, EMBED_PROVIDERS, GAME_AUDIO_DIR, GAME_ICON_DIR,
+  GAME_IMAGE_DIR, ICON_EXTENSIONS, ICON_SIZES, ICON_NAME_RE, PAGE_TAG_ISSUE_URL,
+  PAGE_TAG_VALUES, PAGE_TAGS, audioFileName, audioNameProblem, audioPathFor, embedTarget,
   countCharacters, extractIconRefs, frontmatterData, gameOfPath, joinDocument,
   repositoryIconNames, setYamlField, splitFrontmatter, summarizeIssues, validateContentPath,
   validateDocument, validateWithRepo,
@@ -265,18 +266,21 @@ function renderFmForm() {
       <p class="form-help">分类由编辑器模板统一分发；未在模板中的分类会被内容门禁拒绝。需要新增分类请
         <a href="${issueUrl}" target="_blank" rel="noopener">在编辑器仓库提交 issue</a>。</p>
     </div>
-    <div class="fm-grid-2">
-      <label class="field">
-        <span class="field-label">排序 order</span>
-        <input class="input" data-fm="order" id="fm-order" type="number" placeholder="10">
-      </label>
-      <label class="field">
-        <span class="field-label">更新日期 updated</span>
-        <input class="input" data-fm="updated" id="fm-updated" type="date">
-      </label>
-    </div>
-    <label class="check-row"><input type="checkbox" data-fm="draft" id="fm-draft"><span>草稿（draft：仅开发环境可见）</span></label>
-    <label class="check-row"><input type="checkbox" data-fm="toc" id="fm-toc" checked><span>显示页内目录（toc）</span></label>
+    <details class="fm-advanced">
+      <summary>更多选项（排序 / 日期 / 草稿 / 目录）</summary>
+      <div class="fm-grid-2">
+        <label class="field">
+          <span class="field-label">排序 order</span>
+          <input class="input" data-fm="order" id="fm-order" type="number" placeholder="10">
+        </label>
+        <label class="field">
+          <span class="field-label">更新日期 updated</span>
+          <input class="input" data-fm="updated" id="fm-updated" type="date">
+        </label>
+      </div>
+      <label class="check-row"><input type="checkbox" data-fm="draft" id="fm-draft"><span>草稿（draft：仅开发环境可见）</span></label>
+      <label class="check-row"><input type="checkbox" data-fm="toc" id="fm-toc" checked><span>显示页内目录（toc）</span></label>
+    </details>
     <p class="form-help">修改表单会同步到 frontmatter，未知字段与注释保持不变。需要完整控制时打开「元数据 YAML」标签（带 YAML 语法高亮）。</p>
   `;
   // Assign (not addEventListener) so repeated renders do not stack handlers.
@@ -380,8 +384,8 @@ const HISTORY_GROUP = {
   ],
 };
 
-const MARKDOWN_TEXT_GROUP = {
-  label: '文本',
+const FORMAT_GROUP = {
+  label: '格式',
   items: [
     { action: 'h1', glyph: 'H1', title: '一级标题' },
     { action: 'h2', glyph: 'H2', title: '二级标题' },
@@ -392,12 +396,6 @@ const MARKDOWN_TEXT_GROUP = {
     { action: 'inlineCode', icon: 'code', title: '行内代码' },
     { action: 'mdLink', icon: 'external-link', title: '标准 Markdown 链接' },
     { action: 'quote', icon: 'quote', title: '引用' },
-  ],
-};
-
-const MARKDOWN_BLOCK_GROUP = {
-  label: '块',
-  items: [
     { action: 'ul', icon: 'list', title: '无序列表' },
     { action: 'ol', icon: 'list-ordered', title: '有序列表' },
     { action: 'task', icon: 'check-square', title: '任务列表' },
@@ -413,6 +411,8 @@ const CONTENT_WIKI_GROUP = {
     { action: 'wikiLink', icon: 'link', label: '内链', title: '站内链接 [[…]]' },
     { action: 'wikiImage', icon: 'image', label: '图片', title: '插入正文图片 [[File/…]]' },
     { action: 'icon', icon: 'grid', label: '图标', title: '插入内联图标 [icon=…]' },
+    { action: 'audio', icon: 'music', label: '音频', title: '插入 OGG 音频 [[Audio/…]]' },
+    { action: 'embed', icon: 'video', label: '嵌入', title: '嵌入播放器 [[Embed/https://…]]' },
     { action: 'table', icon: 'table', label: '表格', title: '生成表格（N 行 × M 列）' },
     { action: 'cellColor', icon: 'palette', label: '单元格色', title: '表格单元格颜色' },
   ],
@@ -426,7 +426,7 @@ const CHECK_GROUP = {
   ],
 };
 
-const TOOLBAR = [HISTORY_GROUP, MARKDOWN_TEXT_GROUP, MARKDOWN_BLOCK_GROUP, CONTENT_WIKI_GROUP, CHECK_GROUP];
+const TOOLBAR = [HISTORY_GROUP, FORMAT_GROUP, CONTENT_WIKI_GROUP, CHECK_GROUP];
 
 function renderToolbar() {
   els.toolbar.innerHTML = TOOLBAR.map((group) => `
@@ -479,6 +479,8 @@ function handleToolbarAction(action) {
     case 'callout': openCalloutDialog(); break;
     case 'wikiImage': openImageDialog(); break;
     case 'icon': openIconDialog(); break;
+    case 'audio': openAudioDialog(); break;
+    case 'embed': openEmbedDialog(); break;
     case 'table': openTableDialog(); break;
     case 'cellColor': openCellColorDialog(); break;
     case 'validate': validateNow({ open: true }).catch((error) => toast(`检查失败：${error.message}`, 'error')); break;
@@ -502,19 +504,25 @@ function closeSidebar() {
 function renderAssets() {
   els.assetCount.textContent = String(assets.length);
   if (!assets.length) {
-    els.assetList.innerHTML = '<p class="empty-mini">暂无待上传图片。插入图片时可选择随 PR 上传。</p>';
+    els.assetList.innerHTML = '<p class="empty-mini">暂无待上传资源。插入图片 / 音频时可选择随 PR 上传。</p>';
     return;
   }
-  els.assetList.innerHTML = assets.map((asset, index) => `
+  els.assetList.innerHTML = assets.map((asset, index) => {
+    const isAudio = /\.ogg$/i.test(asset.path);
+    const thumb = isAudio
+      ? `<span class="asset-thumb asset-thumb--audio">${icon('music', 18)}</span>`
+      : `<img class="asset-thumb" src="${escapeHtml(asset.dataUrl)}" alt="">`;
+    return `
     <div class="asset-item">
-      <img class="asset-thumb" src="${escapeHtml(asset.dataUrl)}" alt="">
+      ${thumb}
       <div class="asset-info">
         <span class="asset-name">${escapeHtml(asset.name)}（${formatBytes(asset.size)}）</span>
         <span class="asset-path" title="${escapeHtml(asset.path)}">${escapeHtml(asset.path)}</span>
       </div>
-      <button class="asset-remove" type="button" data-asset-index="${index}" aria-label="移除待上传图片">${icon('x', 14)}</button>
+      <button class="asset-remove" type="button" data-asset-index="${index}" aria-label="移除待上传资源">${icon('x', 14)}</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
   for (const button of els.assetList.querySelectorAll('[data-asset-index]')) {
     button.addEventListener('click', () => {
       assets.splice(Number(button.dataset.assetIndex), 1);
@@ -970,6 +978,60 @@ function attachLazyPreviewImages(article, pagePath = state.content.path) {
   }
 }
 
+function loadPreviewAudio(el, pagePath) {
+  if (el.dataset.loading === '1') return;
+  const game = gameOfPath(pagePath);
+  const file = el.dataset.audioFile || '';
+  const title = el.dataset.audioTitle || '';
+  const hint = el.querySelector('.wf-audio-hint');
+
+  const asset = assets.find((item) => basename(item.path).toLowerCase() === file.toLowerCase());
+  const url = asset?.dataUrl || (game ? repoRawUrl(`games/${game}/${GAME_AUDIO_DIR}/${file}`) : '');
+  if (!url) {
+    el.classList.add('is-error');
+    if (hint) hint.textContent = '无法定位音频文件';
+    return;
+  }
+
+  el.dataset.loading = '1';
+  el.classList.add('is-loading');
+  if (hint) hint.textContent = '加载中…';
+
+  const audio = document.createElement('audio');
+  audio.controls = true;
+  audio.preload = 'metadata';
+  audio.src = url;
+
+  const wrap = document.createElement('span');
+  wrap.className = 'wf-audio wf-audio--loaded is-loading';
+  wrap.append(audio);
+  if (title) {
+    const caption = document.createElement('span');
+    caption.className = 'wf-audio-title';
+    caption.textContent = title;
+    wrap.append(caption);
+  }
+  el.replaceWith(wrap);
+
+  audio.addEventListener('loadedmetadata', () => wrap.classList.remove('is-loading'));
+  audio.addEventListener('error', () => {
+    wrap.classList.remove('is-loading');
+    wrap.classList.add('is-error');
+    toast(`无法加载音频：${file}`, 'error');
+  });
+}
+
+function attachLazyPreviewAudio(article, pagePath = state.content.path) {
+  for (const el of article.querySelectorAll('.wf-audio[data-audio-file]')) {
+    el.addEventListener('click', () => loadPreviewAudio(el, pagePath));
+    el.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      loadPreviewAudio(el, pagePath);
+    });
+  }
+}
+
 function openPreview() {
   const map = assetsForPreview();
   let result;
@@ -986,6 +1048,7 @@ function openPreview() {
     return;
   }
   attachLazyPreviewImages(els.previewArticle);
+  attachLazyPreviewAudio(els.previewArticle);
   els.previewTitle.textContent = result.title || '页面预览';
   els.previewToc.hidden = !(result.toc && result.toc.count >= 2);
   els.previewTocNav.innerHTML = result.toc?.html || '';
@@ -993,7 +1056,7 @@ function openPreview() {
   els.previewOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
   setTimeout(() => $('#btn-preview-close')?.focus(), 30);
-  els.previewTitle.title = '按需预览：仓库图片会显示文件名 / alt，点击占位块后加载';
+  els.previewTitle.title = '按需预览：仓库图片 / 音频会显示占位块，点击后加载';
 }
 
 function closePreview() {
@@ -1682,8 +1745,228 @@ function openImageDialog() {
   refresh();
 }
 
-/* --------------------------------------------------------------- settings */
+function openAudioDialog() {
+  if (state.content.editorTab === 'frontmatter') { toast('请切换到正文。', 'info'); return; }
+  const game = gameOfPath(state.content.path);
+  let picked = null;
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="form-grid">
+      <div class="form-note is-accent">
+        音频仅支持 <strong>.ogg</strong>，放在 <code>games/&lt;游戏&gt;/${GAME_AUDIO_DIR}/</code>；
+        正文语法为 <code>[[Audio/名称.ogg|标题]]</code>，标题可省略。
+      </div>
+      <div class="form-grid-2">
+        <label class="field"><span class="form-label">音频文件（.ogg）</span><input class="input" id="audio-file" type="file" accept=".ogg,audio/ogg"></label>
+        <label class="field"><span class="form-label">上传路径</span><input class="input mono" id="audio-upload-path" autocomplete="off" placeholder="${escapeHtml(`games/<游戏>/${GAME_AUDIO_DIR}/<名称>.ogg`)}"></label>
+      </div>
+      <label class="check-row"><input type="checkbox" id="audio-upload" checked><span>随 PR 上传到该游戏的 assets/audio/</span></label>
+      <div class="form-grid-2">
+        <label class="field"><span class="form-label">文件名</span><input class="input mono" id="audio-name" placeholder="factory.ogg" autocomplete="off"></label>
+        <label class="field"><span class="form-label">标题（可选）</span><input class="input" id="audio-title" placeholder="工厂环境音" autocomplete="off"></label>
+      </div>
+      <p class="form-help" id="audio-status"></p>
+      <pre class="modal-preview" id="audio-preview"></pre>
+    </div>
+  `;
+  const fileInput = body.querySelector('#audio-file');
+  const nameInput = body.querySelector('#audio-name');
+  const titleInput = body.querySelector('#audio-title');
+  const uploadCheck = body.querySelector('#audio-upload');
+  const uploadPathInput = body.querySelector('#audio-upload-path');
+  const statusEl = body.querySelector('#audio-status');
 
+  const defaultPath = (file) => (
+    game ? `games/${game}/${GAME_AUDIO_DIR}/${file}` : `${GAME_AUDIO_DIR}/${file}`
+  );
+  const sanitize = (value) => audioFileName(String(value || '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, ''));
+
+  const currentName = () => audioFileName(nameInput.value.trim() || (picked ? picked.file.name : ''));
+  const escapeOption = (value) => value.replaceAll('|', '\\|').replaceAll(']', '\\]');
+  const marker = () => {
+    const name = currentName();
+    const title = titleInput.value.trim();
+    return `[[Audio/${name}${title ? `|${escapeOption(title)}` : ''}]]`;
+  };
+
+  const refresh = () => {
+    body.querySelector('#audio-preview').textContent = marker() || '（填写文件名后生成标记）';
+    uploadPathInput.disabled = !uploadCheck.checked;
+  };
+
+  let statusSeq = 0;
+  const refreshStatus = async () => {
+    const seq = ++statusSeq;
+    const file = currentName();
+    statusEl.style.color = '';
+    if (!file) { statusEl.textContent = '选择 .ogg 文件或填写文件名。'; return; }
+    const problem = audioNameProblem(file);
+    if (problem) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = problem; return; }
+    if (!game) { statusEl.style.color = 'var(--danger)'; statusEl.textContent = '请先在「页面位置」填写 games/<游戏>/… 路径。'; return; }
+    const willUpload = !!picked && uploadCheck.checked;
+    if (willUpload) {
+      statusEl.textContent = `将随 PR 上传：${uploadPathInput.value.trim() || defaultPath(file)}`;
+      return;
+    }
+    if (assets.some((asset) => asset.path === defaultPath(file))) {
+      statusEl.textContent = '该音频已加入本次待上传列表。';
+      return;
+    }
+    const index = await ensureRepoIndex();
+    if (seq !== statusSeq) return;
+    if (!index.paths) { statusEl.textContent = '无法读取仓库文件列表，提交前会再次检查。'; return; }
+    const exists = repositoryAudioNames(index.paths, game).has(file);
+    statusEl.style.color = exists ? 'var(--success)' : 'var(--danger)';
+    statusEl.textContent = exists
+      ? `已在仓库中找到：${defaultPath(file)}`
+      : `仓库中不存在：${defaultPath(file)}（内容门禁会阻断，请上传或修正文件名）`;
+  };
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    if (!/\.ogg$/i.test(file.name)) {
+      fileInput.value = '';
+      toast('音频仅支持 .ogg 格式。', 'error', 4200);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      picked = {
+        file,
+        dataUrl: String(reader.result),
+        base64: String(reader.result).split(',')[1] || '',
+        size: file.size,
+      };
+      nameInput.value = sanitize(file.name);
+      uploadPathInput.value = defaultPath(nameInput.value);
+      uploadCheck.checked = true;
+      refresh();
+      refreshStatus();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  for (const input of [nameInput, titleInput]) {
+    input.addEventListener('input', () => {
+      if (picked && input === nameInput) uploadPathInput.value = defaultPath(sanitize(nameInput.value));
+      refresh();
+      clearTimeout(refreshStatus.timer);
+      refreshStatus.timer = setTimeout(refreshStatus, 300);
+    });
+  }
+  uploadCheck.addEventListener('change', refreshStatus);
+  uploadPathInput.addEventListener('input', refreshStatus);
+  refresh();
+  refreshStatus();
+
+  const modal = openModal({
+    title: '插入音频',
+    subtitle: '[[Audio/名称.ogg|标题]] · 仅 .ogg',
+    body,
+    footer: [
+      { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '插入', className: 'btn-primary', onClick: async () => {
+        const file = currentName();
+        const problem = audioNameProblem(file);
+        if (problem) { toast(problem, 'error'); return; }
+        if (!game) { toast('请先在「页面位置」填写 games/<游戏>/… 路径，音频必须放在该游戏的 assets/audio/ 下。', 'error', 4600); return; }
+        const willUpload = !!picked && uploadCheck.checked;
+        const uploadPath = (uploadPathInput.value.trim() || defaultPath(file)).replace(/^\/+/, '');
+        if (willUpload) {
+          if (!uploadPath.startsWith(`games/${game}/${GAME_AUDIO_DIR}/`) || uploadPath.includes('..')) {
+            toast(`音频上传路径必须位于 games/${game}/${GAME_AUDIO_DIR}/。`, 'error', 4200);
+            return;
+          }
+          const existing = assets.findIndex((asset) => asset.path === uploadPath);
+          const asset = { path: uploadPath, name: file, dataUrl: picked.dataUrl, base64: picked.base64, size: picked.size };
+          if (existing >= 0) assets.splice(existing, 1, asset);
+          else assets.push(asset);
+          renderAssets();
+        } else {
+          const index = await ensureRepoIndex();
+          if (index.paths && !repositoryAudioNames(index.paths, game).has(file)) {
+            toast(`音频不存在：${defaultPath(file)}。请上传音频或修正文件名，否则门禁会阻断 PR。`, 'error', 5200);
+            return;
+          }
+        }
+        bodyEditor.insertBlock(marker());
+        modal.close();
+        toast(willUpload ? `音频已加入待上传列表：${uploadPath}` : '已插入音频标记。', 'success');
+      } },
+    ],
+  });
+}
+
+function openEmbedDialog() {
+  if (state.content.editorTab === 'frontmatter') { toast('请切换到正文。', 'info'); return; }
+  const body = document.createElement('div');
+  const providers = EMBED_PROVIDERS.map((provider) => provider.label).join(' / ');
+  body.innerHTML = `
+    <div class="form-grid">
+      <div class="form-note is-accent">
+        粘贴播放器的<strong>原始页面链接</strong>（https），编辑器会转换为嵌入式播放器的短标记。
+        目前支持 ${escapeHtml(providers)}；正文语法为 <code>[[Embed/youtube/ID|标题]]</code>。
+      </div>
+      <label class="field"><span class="form-label">播放器链接</span>
+        <input class="input mono" id="embed-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label>
+      <label class="field"><span class="form-label">标题（可选）</span>
+        <input class="input" id="embed-title" placeholder="例如：官方预告片" autocomplete="off"></label>
+      <p class="form-help" id="embed-status"></p>
+      <pre class="modal-preview" id="embed-preview"></pre>
+    </div>
+  `;
+  const urlInput = body.querySelector('#embed-url');
+  const titleInput = body.querySelector('#embed-title');
+  const statusEl = body.querySelector('#embed-status');
+
+  const escapeOption = (value) => value.replaceAll('|', '\\|').replaceAll(']', '\\]');
+  const currentTarget = () => embedTarget(urlInput.value.trim());
+  const marker = () => {
+    const target = currentTarget();
+    const title = titleInput.value.trim();
+    return target ? `[[Embed/${target.value}${title ? `|${escapeOption(title)}` : ''}]]` : '';
+  };
+  const refresh = () => {
+    const url = urlInput.value.trim();
+    const target = currentTarget();
+    const provider = target ? EMBED_PROVIDERS.find((item) => item.id === target.provider)?.label : '';
+    statusEl.style.color = target ? 'var(--success)' : url ? 'var(--danger)' : '';
+    statusEl.textContent = !url
+      ? '粘贴链接后会显示识别结果。'
+      : target
+        ? `已识别：${provider} → 写入 ${target.value}`
+        : '暂不支持该链接；目前支持 YouTube / 哔哩哔哩 / Vimeo 的 https 页面链接。';
+    body.querySelector('#embed-preview').textContent = marker() || '（填写链接后生成标记）';
+  };
+  urlInput.addEventListener('input', refresh);
+  titleInput.addEventListener('input', refresh);
+  refresh();
+
+  const modal = openModal({
+    title: '嵌入播放器',
+    subtitle: '[[Embed/https://…|标题]]',
+    body,
+    footer: [
+      { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '插入', className: 'btn-primary', onClick: () => {
+        const url = urlInput.value.trim();
+        if (!url) { toast('请填写播放器链接。', 'error'); return; }
+        if (!embedTarget(url)) {
+          toast(`暂不支持该链接；目前支持 ${providers} 的 https 页面链接。`, 'error', 5200);
+          return;
+        }
+        bodyEditor.insertBlock(marker());
+        modal.close();
+        toast('已插入嵌入播放器标记。', 'success');
+      } },
+    ],
+  });
+}
+
+/* --------------------------------------------------------------- settings */
 function openSettings() {
   const canHideStatusBar = typeof window.AndroidEditor?.setImmersive === 'function';
   const body = document.createElement('div');
@@ -1697,7 +1980,7 @@ function openSettings() {
         编辑器被硬编码为只能访问 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code>，不会读写 Core / Alias。
       </div>
 
-      <details class="token-guide" open>
+      <details class="token-guide">
         <summary>获取 GitHub token 的完整步骤（贡献者必读）</summary>
         <ol>
           <li>打开 <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener">GitHub → Settings → Developer settings → Personal access tokens (classic)</a>。</li>
@@ -1735,42 +2018,50 @@ function openSettings() {
         <div class="pr-summary-row"><span>目标仓库（固定）</span><span>${CONTENT_OWNER}/${CONTENT_REPO}</span></div>
       </div>
       <label class="field"><span class="form-label">目标分支（留空 = 默认分支）</span><input class="input mono" id="set-branch" value="${escapeHtml(state.settings.branch)}" placeholder="main"></label>
-      <div class="form-grid-2">
-        <label class="field"><span class="form-label">编辑器字号</span>
-          <select class="input" id="set-fontsize">
-            ${[13, 14, 14.5, 15, 16, 17, 18].map((size) => `<option value="${size}" ${Number(state.settings.fontSize) === size ? 'selected' : ''}>${size}px</option>`).join('')}
-          </select>
-        </label>
-        <label class="check-row" style="align-self:end"><input type="checkbox" id="set-wrap" ${state.settings.wrap ? 'checked' : ''}><span>自动换行</span></label>
-      </div>
-      <label class="field">
-        <span class="form-label">行号栏</span>
-        <select class="input" id="set-gutter">
-          <option value="auto" ${state.settings.gutter === 'auto' ? 'selected' : ''}>自动（移动端隐藏，显示当前行 / 总行数）</option>
-          <option value="on" ${state.settings.gutter === 'on' ? 'selected' : ''}>始终显示</option>
-          <option value="off" ${state.settings.gutter === 'off' ? 'selected' : ''}>始终隐藏</option>
-        </select>
-        <p class="form-help">无论是否显示行号栏，底部状态栏都会显示「行 当前/总行数」。</p>
-      </label>
 
-      <label class="check-row">
-        <input type="checkbox" id="set-update-check" ${state.settings.updateCheck === false ? '' : 'checked'}>
-        <span>启动时检查更新（仅提示，不自动下载）</span>
-      </label>
-      <label class="field">
-        <span class="form-label">退出行为</span>
-        <select class="input" id="set-exit-behavior">
-          <option value="ask" ${state.settings.exitBehavior === 'ask' ? 'selected' : ''}>每次询问（默认）</option>
-          <option value="save" ${state.settings.exitBehavior === 'save' ? 'selected' : ''}>总是保存后退出</option>
-          <option value="discard" ${state.settings.exitBehavior === 'discard' ? 'selected' : ''}>不保存直接退出</option>
-        </select>
-        <p class="form-help">退出时若本次会话有未保存修改，会按此设置处理；提示窗口内也会告知此入口。</p>
-      </label>
-      ${canHideStatusBar ? `
-      <label class="check-row">
-        <input type="checkbox" id="set-hide-statusbar" ${state.settings.hideStatusBar ? 'checked' : ''}>
-        <span>隐藏 Android 系统状态栏（沉浸显示）</span>
-      </label>` : ''}
+      <details class="settings-group">
+        <summary>外观与编辑</summary>
+        <div class="form-grid-2">
+          <label class="field"><span class="form-label">编辑器字号</span>
+            <select class="input" id="set-fontsize">
+              ${[13, 14, 14.5, 15, 16, 17, 18].map((size) => `<option value="${size}" ${Number(state.settings.fontSize) === size ? 'selected' : ''}>${size}px</option>`).join('')}
+            </select>
+          </label>
+          <label class="check-row" style="align-self:end"><input type="checkbox" id="set-wrap" ${state.settings.wrap ? 'checked' : ''}><span>自动换行</span></label>
+        </div>
+        <label class="field">
+          <span class="form-label">行号栏</span>
+          <select class="input" id="set-gutter">
+            <option value="auto" ${state.settings.gutter === 'auto' ? 'selected' : ''}>自动（移动端隐藏，显示当前行 / 总行数）</option>
+            <option value="on" ${state.settings.gutter === 'on' ? 'selected' : ''}>始终显示</option>
+            <option value="off" ${state.settings.gutter === 'off' ? 'selected' : ''}>始终隐藏</option>
+          </select>
+          <p class="form-help">无论是否显示行号栏，底部状态栏都会显示「行 当前/总行数」。</p>
+        </label>
+      </details>
+
+      <details class="settings-group">
+        <summary>启动与退出</summary>
+        <label class="check-row">
+          <input type="checkbox" id="set-update-check" ${state.settings.updateCheck === false ? '' : 'checked'}>
+          <span>启动时检查更新（仅提示，不自动下载）</span>
+        </label>
+        <label class="field">
+          <span class="form-label">退出行为</span>
+          <select class="input" id="set-exit-behavior">
+            <option value="ask" ${state.settings.exitBehavior === 'ask' ? 'selected' : ''}>每次询问（默认）</option>
+            <option value="save" ${state.settings.exitBehavior === 'save' ? 'selected' : ''}>总是保存后退出</option>
+            <option value="discard" ${state.settings.exitBehavior === 'discard' ? 'selected' : ''}>不保存直接退出</option>
+          </select>
+          <p class="form-help">退出时若本次会话有未保存修改，会按此设置处理；提示窗口内也会告知此入口。</p>
+        </label>
+        ${canHideStatusBar ? `
+        <label class="check-row">
+          <input type="checkbox" id="set-hide-statusbar" ${state.settings.hideStatusBar ? 'checked' : ''}>
+          <span>隐藏 Android 系统状态栏（沉浸显示）</span>
+        </label>` : ''}
+      </details>
+
       <div class="button-row">
         <button class="btn btn-small" type="button" id="set-check-update">立即检查更新</button>
         <button class="btn btn-small" type="button" id="set-contributing">查看 Content 使用须知</button>

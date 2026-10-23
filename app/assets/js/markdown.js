@@ -5,10 +5,13 @@ import DOMPurify from '../vendor/purify.es.mjs';
 import {
   CALLOUTS, CALLOUT_ALIASES, COLOR_ALIASES, COLOR_TOKENS, CSS_COLOR_RE,
   IMAGE_ALIGNS, IMAGE_SIZES, ICON_SIZES, PAGE_TAGS, frontmatterData,
+  isAllowedEmbedUrl, parseAudioMarker, parseEmbedMarker,
 } from './validate.js';
 import { escapeHtml, basename, stripExt } from './state.js';
 
 const IMAGE_PREFIX_RE = /^(?:File|Image|文件)\s*[/:：\\]/i;
+const AUDIO_PREFIX_RE = /^Audio\s*[/:：\\]/i;
+const EMBED_PREFIX_RE = /^Embed\s*[/:：\\]/i;
 const SAFE_MEDIA_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 function parseImageOptions(tail) {
@@ -66,6 +69,10 @@ function lookupAsset(assets, name) {
 
 function photoIcon() {
   return '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
+}
+
+function audioIcon() {
+  return '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 }
 
 /* ------------------------------------------------------------ extensions */
@@ -143,14 +150,14 @@ const wikiLinkExtension = {
   name: 'wfWikiLink',
   level: 'inline',
   start(src) {
-    const match = /\[\[(?!\s*(?:File|Image|文件)\s*[/:：\\])/.exec(src);
+    const match = /\[\[(?!\s*(?:File|Image|文件|Audio|Embed)\s*[/:：\\])/.exec(src);
     return match ? match.index : undefined;
   },
   tokenizer(src) {
     const match = /^\[\[([^[\]\n]+)\]\]/.exec(src);
     if (!match) return undefined;
-    // Image markers must be handled by wfWikiImage, never as an internal link.
-    if (IMAGE_PREFIX_RE.test(match[1])) return undefined;
+    // Media markers must be handled by their own extensions, never as internal links.
+    if (IMAGE_PREFIX_RE.test(match[1]) || AUDIO_PREFIX_RE.test(match[1]) || EMBED_PREFIX_RE.test(match[1])) return undefined;
     const pipe = match[1].indexOf('|');
     const target = (pipe === -1 ? match[1] : match[1].slice(0, pipe)).trim();
     const label = pipe === -1 ? '' : match[1].slice(pipe + 1).trim();
@@ -165,6 +172,62 @@ const wikiLinkExtension = {
     const label = token.label || token.target.split('#')[0];
     const href = `#/${encodeURIComponent(token.target.split('#')[0])}`;
     return `<a class="wf-link-preview" href="${href}" data-target="${escapeHtml(token.target)}" title="站内链接：${escapeHtml(token.target)}">${escapeHtml(label)}</a>`;
+  },
+};
+
+const wikiAudioExtension = {
+  name: 'wfWikiAudio',
+  level: 'inline',
+  start(src) {
+    const match = /\[\[Audio\s*[/:：\\]/i.exec(src);
+    return match ? match.index : undefined;
+  },
+  tokenizer(src) {
+    const match = /^\[\[Audio\s*[/:：\\]([^[\]\n]+)\]\]/i.exec(src);
+    if (!match) return undefined;
+    const parsed = parseAudioMarker(match[1]);
+    return { type: 'wfWikiAudio', raw: match[0], ...parsed };
+  },
+  renderer(token) {
+    if (!token || token.warning || !SAFE_MEDIA_RE.test(token.name.replace(/\.ogg$/i, ''))) {
+      return escapeHtml(token?.raw || '');
+    }
+    const title = token.title
+      ? `<span class="wf-audio-title">${escapeHtml(token.title)}</span>`
+      : '<span class="wf-audio-title">OGG 音频</span>';
+    return `<span class="wf-audio" role="button" tabindex="0" data-audio-file="${escapeHtml(token.name)}"
+      data-audio-title="${escapeHtml(token.title || '')}" aria-label="加载音频 ${escapeHtml(token.name)}">
+      <span class="wf-audio-icon">${audioIcon()}</span>
+      <span class="wf-audio-text"><span class="wf-audio-name">${escapeHtml(token.name)}</span>${title}</span>
+      <span class="wf-audio-hint">点击加载音频</span>
+    </span>`;
+  },
+};
+
+const wikiEmbedExtension = {
+  name: 'wfWikiEmbed',
+  level: 'inline',
+  start(src) {
+    const match = /\[\[Embed\s*[/:：\\]/i.exec(src);
+    return match ? match.index : undefined;
+  },
+  tokenizer(src) {
+    const match = /^\[\[Embed\s*[/:：\\]([^[\]\n]+)\]\]/i.exec(src);
+    if (!match) return undefined;
+    const parsed = parseEmbedMarker(match[1]);
+    return { type: 'wfWikiEmbed', raw: match[0], ...parsed };
+  },
+  renderer(token) {
+    if (!token || !token.embedUrl || token.warning) {
+      return `<span class="wf-embed-error">${escapeHtml(token?.warning || '无法嵌入该链接')}</span>`;
+    }
+    const title = token.title || token.provider || '嵌入播放器';
+    const caption = token.title ? `<span class="wf-figcaption">${escapeHtml(token.title)}</span>` : '';
+    return `<span class="wf-embed" data-provider="${escapeHtml(token.provider || '')}">
+      <span class="wf-embed-frame"><iframe src="${escapeHtml(token.embedUrl)}" title="${escapeHtml(title)}" loading="lazy"
+        allow="accelerometer; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"></iframe></span>${caption}
+    </span>`;
   },
 };
 
@@ -208,20 +271,25 @@ const iconExtension = {
 marked.use({
   gfm: true,
   breaks: false,
-  extensions: [calloutExtension, wikiImageExtension, wikiLinkExtension, iconExtension],
+  extensions: [calloutExtension, wikiImageExtension, wikiAudioExtension, wikiEmbedExtension, wikiLinkExtension, iconExtension],
 });
 
 /* --------------------------------------------------------------- rendering */
 
 function prepareArticle(article, html) {
   const clean = DOMPurify.sanitize(html, {
-    ADD_TAGS: ['figure', 'figcaption'],
-    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind', 'role', 'tabindex', 'aria-label'],
-    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
+    ADD_TAGS: ['figure', 'figcaption', 'iframe'],
+    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind', 'role', 'tabindex', 'aria-label', 'allow', 'allowfullscreen', 'referrerpolicy', 'frameborder'],
+    FORBID_TAGS: ['script', 'style', 'object', 'embed', 'form', 'input', 'button'],
     FORBID_ATTR: ['onerror', 'onload', 'onclick'],
     ALLOW_DATA_ATTR: true,
   });
   article.innerHTML = clean;
+
+  // Only allow-list embed providers may stay framed.
+  for (const frame of [...article.querySelectorAll('iframe')]) {
+    if (!isAllowedEmbedUrl(frame.getAttribute('src'))) frame.remove();
+  }
 
   // Relative Markdown images cannot be fetched in the preview (CSP), so show
   // filename + alt as a click-to-load placeholder instead of a broken image.

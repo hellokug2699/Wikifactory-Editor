@@ -1,18 +1,23 @@
 /** Wikifactory Content rules: page paths, frontmatter and Wiki syntax. */
 
 import {
-  GATE_DATE_RE, ICON_DIR, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_DIR, IMAGE_EXTENSIONS,
-  PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS, RESERVED_PATHS,
-  frontmatterTypeProblems, iconPathFor, isValidGateDate, nameProblem, tagProblems,
+  AUDIO_DIR, AUDIO_EXTENSIONS, EMBED_PROVIDERS, GATE_DATE_RE, ICON_DIR, ICON_EXTENSIONS,
+  ICON_NAME_RE, IMAGE_DIR, IMAGE_EXTENSIONS, PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS,
+  RESERVED_PATHS, audioFileName, audioNameProblem, audioPathFor, embedTarget,
+  frontmatterTypeProblems, iconPathFor, isAllowedEmbedUrl, isValidGateDate, nameProblem,
+  parseAudioMarker, parseEmbedMarker, tagProblems,
 } from './content-rules.js';
 
 export {
-  GATE_DATE_RE, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_EXTENSIONS, PAGE_TAG_ISSUE_URL,
-  PAGE_TAG_VALUES, PAGE_TAGS, isValidGateDate, RESERVED_PATHS, tagProblems,
+  AUDIO_EXTENSIONS, EMBED_PROVIDERS, GATE_DATE_RE, ICON_EXTENSIONS, ICON_NAME_RE,
+  IMAGE_EXTENSIONS, PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS, audioFileName,
+  audioNameProblem, audioPathFor, embedTarget, isAllowedEmbedUrl, isValidGateDate,
+  parseAudioMarker, parseEmbedMarker, RESERVED_PATHS, tagProblems,
 };
 
 export const GAME_IMAGE_DIR = IMAGE_DIR;
 export const GAME_ICON_DIR = ICON_DIR;
+export const GAME_AUDIO_DIR = AUDIO_DIR;
 
 export const CALLOUTS = {
   note: { label: '说明', tone: 'neutral' },
@@ -385,6 +390,39 @@ export function validateWikiSyntax(text) {
     }
   }
 
+  // Audio: `[[Audio/name.ogg|标题]]` — .ogg only, file under assets/audio/.
+  const audioColonRe = /\[\[Audio\s*:(?!\\)[^\]\n]*\]\]/gi;
+  for (const match of masked.matchAll(audioColonRe)) {
+    issues.push(issue('error', '音频请使用 Audio/ 而不是 Audio:', { line: lineOf(masked, match.index) }));
+  }
+  const audioRe = /\[\[Audio\s*[/\\]([^[\]\n]+)\]\]/gi;
+  for (const match of masked.matchAll(audioRe)) {
+    const line = lineOf(masked, match.index);
+    const parsed = parseAudioMarker(match[1]);
+    if (!parsed) {
+      issues.push(issue('error', '音频标记缺少文件名', { line }));
+      continue;
+    }
+    const problem = audioNameProblem(parsed.rawName);
+    if (problem) issues.push(issue('error', `音频不合法：${problem}`, { line }));
+  }
+
+  // Embeds: `[[Embed/https://…|标题]]` — only allow-listed providers.
+  const embedColonRe = /\[\[Embed\s*:(?!\\)[^\]\n]*\]\]/gi;
+  for (const match of masked.matchAll(embedColonRe)) {
+    issues.push(issue('error', '嵌入请使用 Embed/ 而不是 Embed:', { line: lineOf(masked, match.index) }));
+  }
+  const embedRe = /\[\[Embed\s*[/\\]([^[\]\n]+)\]\]/gi;
+  for (const match of masked.matchAll(embedRe)) {
+    const line = lineOf(masked, match.index);
+    const parsed = parseEmbedMarker(match[1]);
+    if (!parsed) {
+      issues.push(issue('error', '嵌入标记缺少链接', { line }));
+      continue;
+    }
+    if (parsed.warning) issues.push(issue('error', parsed.warning, { line }));
+  }
+
   // Icons: `[icon=name;size=lg;bg=#eee;fg=#333]`
   const iconRe = /\[icon=([^\]\n]+)\]/gi;
   for (const match of masked.matchAll(iconRe)) {
@@ -424,7 +462,7 @@ export function validateWikiSyntax(text) {
   // Wiki links: empty target.
   const linkRe = /\[\[([^[\]\n]+)\]\]/g;
   for (const match of masked.matchAll(linkRe)) {
-    if (/^(?:File|Image|文件)\s*[/\\:：]/i.test(match[1])) continue;
+    if (/^(?:File|Image|文件|Audio|Embed)\s*[/\\:：]/i.test(match[1])) continue;
     const target = match[1].split('|')[0].trim();
     if (!target) issues.push(issue('error', '站内链接目标为空', { line: lineOf(masked, match.index) }));
     if (/^[^#].*\\/.test(target)) issues.push(issue('warn', `站内链接包含反斜杠：${target}`, { line: lineOf(masked, match.index) }));
@@ -488,6 +526,44 @@ export function validateIconAvailability(body, { game, iconNames }) {
   return issues;
 }
 
+/** `[[Audio/…]]` references outside fenced / inline code, in source order. */
+export function extractAudioRefs(text) {
+  const masked = maskCode(String(text || ''));
+  const refs = [];
+  for (const match of masked.matchAll(/\[\[Audio\s*[/\\]([^[\]\n]+)\]\]/gi)) {
+    const parsed = parseAudioMarker(match[1]);
+    if (!parsed) continue;
+    refs.push({ name: parsed.name, title: parsed.title, raw: match[0], line: lineOf(masked, match.index) });
+  }
+  return refs;
+}
+
+/** Audio files available under games/<game>/assets/audio/ (.ogg only). */
+export function repositoryAudioNames(repoPaths, game) {
+  const names = new Set();
+  if (!game) return names;
+  const prefix = `games/${game}/${GAME_AUDIO_DIR}/`;
+  for (const path of repoPaths) {
+    if (!path.startsWith(prefix)) continue;
+    const rest = path.slice(prefix.length);
+    if (!rest || rest.includes('/')) continue;
+    if (!/\.ogg$/i.test(rest)) continue;
+    names.add(rest);
+  }
+  return names;
+}
+
+/** Errors when `[[Audio/…]]` has no matching .ogg file — same rule as the content gate. */
+export function validateAudioAvailability(body, { game, audioNames }) {
+  const issues = [];
+  if (!game || !audioNames) return issues;
+  for (const ref of extractAudioRefs(body)) {
+    if (!ref.name || audioNames.has(ref.name)) continue;
+    issues.push(issue('error', `音频文件不存在：${audioPathFor(game, ref.name)}（内容门禁会阻断）`, { line: ref.line }));
+  }
+  return issues;
+}
+
 const REPO_PAGE_RE = /\.(md|mdx)$/i;
 
 /** Duplicate URL / case-only conflicts against the repository tree. */
@@ -516,13 +592,15 @@ export function validateRepoConflicts({ path, repoPaths }) {
   return issues;
 }
 
-/** Repository-backed checks used before a PR: icon files and URL conflicts. */
+/** Repository-backed checks used before a PR: media files and URL conflicts. */
 export function validateWithRepo({ path, body, repoPaths, extraPaths = [] }) {
   if (!Array.isArray(repoPaths) || !repoPaths.length) return [];
   const allPaths = extraPaths.length ? [...repoPaths, ...extraPaths] : repoPaths;
   const game = gameOfPath(path);
   return [
     ...validateIconAvailability(body, { game, iconNames: repositoryIconNames(allPaths, game) })
+      .map((item) => ({ ...item, source: 'repo' })),
+    ...validateAudioAvailability(body, { game, audioNames: repositoryAudioNames(allPaths, game) })
       .map((item) => ({ ...item, source: 'repo' })),
     ...validateRepoConflicts({ path, repoPaths: allPaths }),
   ];

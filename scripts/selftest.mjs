@@ -6,8 +6,10 @@ import {
   validateFrontmatter, extractIconRefs, repositoryIconNames,
 } from '../app/assets/js/validate.js';
 import { APP_VERSION } from '../app/assets/js/state.js';
+import { buildPreview } from '../app/assets/js/markdown.js';
 import {
-  PAGE_TAGS, PAGE_TAG_VALUES, RESERVED_PATHS, nameProblem, rulesMatchConfig,
+  AUDIO_DIR, PAGE_TAGS, PAGE_TAG_VALUES, RESERVED_PATHS, audioFileName, audioNameProblem,
+  embedTarget, nameProblem, parseAudioMarker, parseEmbedMarker, rulesMatchConfig,
   frontmatterTypeProblems, tagProblems,
 } from '../app/assets/js/content-rules.js';
 
@@ -170,6 +172,10 @@ test('shared rules detect config drift', () => {
   assert.ok(rulesMatchConfig({ reserved, thumbnails: { icon: { dir: 'assets/images', extensions: [] } } }).length > 0);
 });
 
+test('preview module resolves all exported helpers', () => {
+  assert.equal(typeof buildPreview, 'function');
+});
+
 test('page categories come from the shared template', () => {
   assert.ok(PAGE_TAGS.length >= 3);
   assert.deepEqual(new Set(PAGE_TAG_VALUES).size, PAGE_TAG_VALUES.length);
@@ -186,6 +192,61 @@ test('page categories come from the shared template', () => {
 test('validateFrontmatter rejects unknown page categories', () => {
   const issues = validateFrontmatter('title: T\ntags: [攻略, 自造分类]');
   assert.ok(issues.some((item) => item.message.includes('未知页面分类')));
+});
+
+test('audio markers only accept ogg', () => {
+  assert.equal(parseAudioMarker('factory.ogg|工厂环境音').name, 'factory.ogg');
+  assert.equal(parseAudioMarker('factory.ogg|工厂环境音').title, '工厂环境音');
+  assert.equal(parseAudioMarker('factory').name, 'factory.ogg');
+  assert.equal(audioFileName('factory'), 'factory.ogg');
+  assert.match(audioNameProblem('factory.mp3') ?? '', /ogg/);
+  assert.match(audioNameProblem('../secret.ogg') ?? '', /字母/);
+  assert.equal(audioNameProblem('factory.ogg'), null);
+
+  const issues = validateWikiSyntax('[[Audio/factory.ogg|工厂]]\n[[Audio/factory.mp3]]');
+  assert.ok(issues.some((item) => item.severity === 'error' && item.message.includes('音频不合法')));
+  assert.equal(validateWikiSyntax('[[Audio/factory.ogg|工厂]]').filter((item) => item.severity === 'error').length, 0);
+});
+
+test('embed targets are limited to supported https providers', () => {
+  assert.equal(
+    embedTarget('https://www.youtube.com/watch?v=dQw4w9WgXcQ').embedUrl,
+    'https://www.youtube.com/embed/dQw4w9WgXcQ',
+  );
+  assert.equal(embedTarget('https://youtu.be/dQw4w9WgXcQ').value, 'youtube/dQw4w9WgXcQ');
+  assert.equal(
+    embedTarget('https://www.bilibili.com/video/BV1xx411c7mD').embedUrl,
+    'https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&autoplay=0',
+  );
+  assert.equal(embedTarget('https://vimeo.com/123456789').value, 'vimeo/123456789');
+  assert.equal(embedTarget('http://www.youtube.com/watch?v=dQw4w9WgXcQ'), null);
+  assert.equal(embedTarget('https://example.com/watch?v=dQw4w9WgXcQ'), null);
+  assert.equal(parseEmbedMarker('youtube/dQw4w9WgXcQ|演示').embedUrl, 'https://www.youtube.com/embed/dQw4w9WgXcQ');
+  assert.equal(parseEmbedMarker('https://youtu.be/dQw4w9WgXcQ').warning?.includes('youtube/ID'), true);
+  assert.equal(parseEmbedMarker('https://example.com/video|演示').warning?.includes('不支持'), true);
+
+  const issues = validateWikiSyntax('[[Embed/https://example.com/video]]');
+  assert.ok(issues.some((item) => item.severity === 'error' && item.message.includes('不支持的嵌入来源')));
+  assert.equal(validateWikiSyntax('[[Embed/youtube/dQw4w9WgXcQ|演示]]').filter((item) => item.severity === 'error').length, 0);
+});
+
+test('audio availability matches the repository tree', () => {
+  const repoPaths = [`games/Satisfactory/${AUDIO_DIR}/factory.ogg`];
+  const issues = validateWithRepo({
+    path: 'games/Satisfactory/Buildings/MAM.md',
+    body: '[[Audio/factory.ogg]] [[Audio/missing.ogg]]',
+    repoPaths,
+  });
+  const missing = issues.filter((item) => item.message.includes('音频文件不存在'));
+  assert.equal(missing.length, 1);
+  assert.ok(missing[0].message.includes(`games/Satisfactory/${AUDIO_DIR}/missing.ogg`));
+  const withPending = validateWithRepo({
+    path: 'games/Satisfactory/Buildings/MAM.md',
+    body: '[[Audio/missing.ogg]]',
+    repoPaths,
+    extraPaths: [`games/Satisfactory/${AUDIO_DIR}/missing.ogg`],
+  });
+  assert.equal(withPending.filter((item) => item.message.includes('音频文件不存在')).length, 0);
 });
 
 console.log(`\n${passed} tests passed.`);

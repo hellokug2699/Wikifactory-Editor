@@ -48,6 +48,12 @@ if (mode === '--write') {
   fs.writeFileSync(checksumFile, `${hash}  ${targetName}\n`);
   console.log(`已写入 ${targetFile}`);
   console.log(`校验和 ${checksumFile}`);
+  // Core 的渲染层也复用同一份规则（逐字节副本），供 Astro / 门禁共同导入。
+  const libTarget = path.join(targetRepo, 'src', 'lib', 'content-rules.js');
+  if (fs.existsSync(path.dirname(libTarget))) {
+    fs.copyFileSync(source, libTarget);
+    console.log(`已写入 ${libTarget}`);
+  }
   process.exit(0);
 }
 
@@ -65,6 +71,14 @@ if (mode === '--check') {
     const recorded = fs.readFileSync(checksumFile, 'utf8').split(/\s+/)[0];
     if (recorded !== hash) {
       console.error(`内容仓库的 content-rules.sha256 记录过期（${recorded}），请重新 --write。`);
+      process.exit(1);
+    }
+  }
+  const libTarget = path.join(targetRepo, 'src', 'lib', 'content-rules.js');
+  if (fs.existsSync(libTarget)) {
+    const libHash = crypto.createHash('sha256').update(fs.readFileSync(libTarget)).digest('hex');
+    if (libHash !== hash) {
+      console.error(`渲染层规则副本不一致：${libTarget}（${libHash}），请重新 --write。`);
       process.exit(1);
     }
   }

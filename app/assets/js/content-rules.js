@@ -13,7 +13,7 @@
  * The sync script also writes a checksum used by the content CI.
  */
 
-export const RULES_VERSION = '1.1.0';
+export const RULES_VERSION = '1.2.0';
 
 /** Top-level site paths that game directories must not shadow. */
 export const RESERVED_PATHS = ['search', 'pagefind', '_astro', '404', 'about'];
@@ -54,12 +54,169 @@ export const PAGE_EXT_RE = /\.(md|mdx)$/i;
 export const ILLEGAL_SEGMENT_CHARS = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 export const CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-/** Asset layout (config/thumbnails.json). */
+/** Asset layout (config/thumbnails.json / config/wiki.json). */
 export const ICON_DIR = 'assets/icons';
 export const IMAGE_DIR = 'assets/images';
+export const AUDIO_DIR = 'assets/audio';
 export const ICON_EXTENSIONS = ['svg', 'png', 'webp', 'jpg', 'jpeg', 'avif', 'gif'];
 export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'svg'];
+export const AUDIO_EXTENSIONS = ['ogg'];
 export const ICON_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
+
+/** Audio markers only accept .ogg; names without an extension get `.ogg` appended. */
+export function audioFileName(name) {
+  const value = String(name || '').trim();
+  if (!value) return '';
+  if (/\.[a-z0-9]+$/i.test(value)) return value;
+  return `${value}.ogg`;
+}
+
+/** Validate a normalized audio file name (must end in .ogg, safe characters). */
+export function audioNameProblem(name) {
+  const file = audioFileName(name);
+  if (!file) return '音频名称为空';
+  if (!/\.ogg$/i.test(file)) return '音频仅支持 .ogg 格式';
+  if (!ICON_NAME_RE.test(file) || file.includes('..')) {
+    return '音频名称只允许字母 / 数字 / . _ -';
+  }
+  return null;
+}
+
+export function audioPathFor(game, name) {
+  return `games/${game}/${AUDIO_DIR}/${audioFileName(name)}`;
+}
+
+/** Parse `[[Audio/name.ogg|标题]]` (tail = everything after `Audio/`). */
+export function parseAudioMarker(tail) {
+  const pipe = tail.indexOf('|');
+  const rawName = (pipe === -1 ? tail : tail.slice(0, pipe)).trim();
+  const title = (pipe === -1 ? '' : tail.slice(pipe + 1).trim());
+  if (!rawName) return null;
+  const name = audioFileName(rawName);
+  const problem = audioNameProblem(rawName);
+  return { name, title, rawName, warning: problem || undefined };
+}
+
+/** Video/audio embed providers. Only these origins may be framed. */
+export const EMBED_PROVIDERS = [
+  { id: 'youtube', label: 'YouTube', origin: 'https://www.youtube.com' },
+  { id: 'bilibili', label: '哔哩哔哩', origin: 'https://player.bilibili.com' },
+  { id: 'vimeo', label: 'Vimeo', origin: 'https://player.vimeo.com' },
+];
+
+export const EMBED_ORIGINS = EMBED_PROVIDERS.map((provider) => provider.origin);
+
+function httpsUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function youtubeEmbed(id) {
+  return /^[A-Za-z0-9_-]{6,20}$/.test(id) ? `https://www.youtube.com/embed/${id}` : '';
+}
+
+function bilibiliEmbed(id) {
+  if (!/^(?:BV[0-9A-Za-z]{8,14}|av\d+)$/i.test(id)) return '';
+  const query = id.toLowerCase().startsWith('bv') ? `bvid=${id}` : `aid=${id.slice(2)}`;
+  return `https://player.bilibili.com/player.html?${query}&autoplay=0`;
+}
+
+function vimeoEmbed(id) {
+  return /^\d+$/.test(id) ? `https://player.vimeo.com/video/${id}` : '';
+}
+
+function youtubeIdFromUrl(url) {
+  const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+  if (host === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0] || '';
+  if (host !== 'youtube.com' && host !== 'm.youtube.com') return '';
+  if (url.pathname === '/watch') return url.searchParams.get('v') || '';
+  const match = /^\/(?:shorts|embed|live)\/([A-Za-z0-9_-]+)/.exec(url.pathname);
+  return match ? match[1] : '';
+}
+
+function bilibiliIdFromUrl(url) {
+  if (!/(^|\.)bilibili\.com$/i.test(url.hostname)) return '';
+  return /^\/video\/(BV[0-9A-Za-z]{8,14}|av\d+)/i.exec(url.pathname)?.[1] || '';
+}
+
+function vimeoIdFromUrl(url) {
+  if (!/(^|\.)vimeo\.com$/i.test(url.hostname)) return '';
+  const segment = url.pathname.split('/').filter(Boolean)[0] || '';
+  return /^\d+$/.test(segment) ? segment : '';
+}
+
+/**
+ * Resolve an author link (or `provider/id`) to an embed target.
+ * @returns {{provider: string, id: string, value: string, embedUrl: string}|null}
+ */
+export function embedTarget(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const direct = /^(youtube|bilibili|vimeo)\/([A-Za-z0-9_-]+)$/i.exec(raw);
+  if (direct) {
+    const provider = direct[1].toLowerCase();
+    const id = direct[2];
+    const embedUrl = provider === 'youtube'
+      ? youtubeEmbed(id)
+      : provider === 'bilibili'
+        ? bilibiliEmbed(id)
+        : vimeoEmbed(id);
+    return embedUrl ? { provider, id, value: `${provider}/${id}`, embedUrl } : null;
+  }
+
+  const url = httpsUrl(raw);
+  if (!url) return null;
+  const youtube = youtubeIdFromUrl(url);
+  if (youtube && youtubeEmbed(youtube)) {
+    return { provider: 'youtube', id: youtube, value: `youtube/${youtube}`, embedUrl: youtubeEmbed(youtube) };
+  }
+  const bilibili = bilibiliIdFromUrl(url);
+  if (bilibili && bilibiliEmbed(bilibili)) {
+    return { provider: 'bilibili', id: bilibili, value: `bilibili/${bilibili}`, embedUrl: bilibiliEmbed(bilibili) };
+  }
+  const vimeo = vimeoIdFromUrl(url);
+  if (vimeo && vimeoEmbed(vimeo)) {
+    return { provider: 'vimeo', id: vimeo, value: `vimeo/${vimeo}`, embedUrl: vimeoEmbed(vimeo) };
+  }
+  return null;
+}
+
+/** Parse `[[Embed/youtube/ID|标题]]` (tail = everything after `Embed/`). */
+export function parseEmbedMarker(tail) {
+  const pipe = tail.indexOf('|');
+  const target = (pipe === -1 ? tail : tail.slice(0, pipe)).trim();
+  const title = (pipe === -1 ? '' : tail.slice(pipe + 1).trim());
+  if (!target) return null;
+  const resolved = embedTarget(target);
+  const isUrl = /^https?:\/\//i.test(target);
+  return {
+    target,
+    title,
+    provider: resolved?.provider,
+    embedUrl: resolved?.embedUrl,
+    value: resolved?.value,
+    warning: !resolved
+      ? '不支持的嵌入来源；请使用 youtube/ID、bilibili/BV号 或 vimeo/ID'
+      : isUrl
+        ? '请使用 youtube/ID、bilibili/BV号 或 vimeo/ID 形式（避免链接被自动识别为普通链接）'
+        : undefined,
+  };
+}
+
+/** True when a URL may be used as an iframe src (defensive post-sanitize check). */
+export function isAllowedEmbedUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return EMBED_ORIGINS.includes(url.origin);
+  } catch {
+    return false;
+  }
+}
 
 /** Date or ISO timestamp, matching the content gate. */
 export const GATE_DATE_RE =
