@@ -6,6 +6,12 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.1.5 质量更新
+
+- **隐藏 Android 状态栏**：设置页新增「隐藏 Android 系统状态栏（沉浸显示）」，仅 Android 应用可见；使用 `WindowInsetsController`（API 30+）或全屏标志（API 26–29）隐藏状态栏，滑动顶部可临时呼出。设置会持久化并在每次启动时恢复。
+- **修复移动端「退出应用」无效**：Android WebView 也加载了 Neutralino 兼容脚本，`Neutralino.app.exit` 抢先执行但并无原生进程可退。现在优先调用 Android 桥接 `exitApp`（`finishAndRemoveTask` + `finishAffinity`），桌面端仍走 Neutralino，纯浏览器环境会明确提示「无法自动关闭窗口」，不再静默无反应。
+- 版本号：**1.1.5**（Android versionCode 7）。
+
 ## v1.1.4 功能修复
 
 - **资源目录按类型区分**：正文大图上传到 `games/<游戏>/assets/images/`，`[icon=…]` 内联图标上传到 `games/<游戏>/assets/icons/`。图标对话框新增文件上传与路径校验，不再出现"图标建议放 images"的误导。
@@ -42,13 +48,13 @@
 - **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
 - 版本号：**1.1.1**（Android versionCode 3）。
 
-## 下载（v1.1.4）
+## 下载（v1.1.5）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.4-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.4/Wikifactory-Editor-v1.1.4-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.4-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.4/Wikifactory-Editor-v1.1.4-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.4-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.4/Wikifactory-Editor-v1.1.4-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.5-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.5/Wikifactory-Editor-v1.1.5-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.5-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.5/Wikifactory-Editor-v1.1.5-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.5-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.5/Wikifactory-Editor-v1.1.5-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -61,9 +67,9 @@
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-c7ee0328f6844da2fe3114c527e5dbfa779b7fe3ac39efde60eac770ca412f32  Wikifactory-Editor-v1.1.4-android.apk
-e470681d0fe6404314881f1c133d9a62d7e2d5c42885dc8b9bdd5106efabb65e  Wikifactory-Editor-v1.1.4-windows-x64.exe
-74d4e7b7e4a3e82f461310606ed25ba4218d298ee234c9ee67973de04c99bb7e  Wikifactory-Editor-v1.1.4-web.zip
+765af4e09a4fd36d5bd19a03115453ab61cad6d8e9d2fd13ae50df695e544411  Wikifactory-Editor-v1.1.5-android.apk
+0649f8505ddc3931ce9790934ee793b6cec7db699ac2c4b755c5fed82505b1de  Wikifactory-Editor-v1.1.5-windows-x64.exe
+4c6f3b900153a9ee7cb4d37cd345f5220a1d927b4a81b2316148950c2ef342d7  Wikifactory-Editor-v1.1.5-web.zip
 ```
 
 ## 功能
@@ -244,7 +250,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.4-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.5-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 ```

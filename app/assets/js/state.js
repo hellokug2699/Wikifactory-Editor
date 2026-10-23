@@ -3,7 +3,7 @@
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
 /** Kept in sync with package.json by scripts/selftest.mjs. */
-export const APP_VERSION = '1.1.4';
+export const APP_VERSION = '1.1.5';
 
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';
@@ -24,6 +24,7 @@ export function defaultState() {
       rememberToken: true,
       updateCheck: true,
       exitBehavior: 'ask',
+      hideStatusBar: false,
       templates: {
         tableCell: '',
         imageStyle: 'wiki',
@@ -73,6 +74,7 @@ function migrate(parsed) {
     if (typeof merged.settings.rememberToken !== 'boolean') merged.settings.rememberToken = true;
     if (typeof merged.settings.updateCheck !== 'boolean') merged.settings.updateCheck = true;
     if (!['ask', 'save', 'discard'].includes(merged.settings.exitBehavior)) merged.settings.exitBehavior = 'ask';
+    if (typeof merged.settings.hideStatusBar !== 'boolean') merged.settings.hideStatusBar = false;
   }
   merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';

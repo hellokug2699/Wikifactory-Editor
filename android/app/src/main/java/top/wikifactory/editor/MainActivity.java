@@ -16,6 +16,8 @@ import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -52,6 +54,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+    private boolean hideStatusBar = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -153,7 +156,20 @@ public class MainActivity extends Activity {
 
             @JavascriptInterface
             public void exitApp() {
-                runOnUiThread(() -> finish());
+                runOnUiThread(() -> {
+                    finishAndRemoveTask();
+                    finishAffinity();
+                });
+            }
+
+            @JavascriptInterface
+            public String setImmersive(String enabled) {
+                final boolean hide = "true".equals(enabled);
+                runOnUiThread(() -> {
+                    hideStatusBar = hide;
+                    applyImmersive(hide);
+                });
+                return "true";
             }
         }, "AndroidEditor");
 
@@ -222,6 +238,31 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void applyImmersive(boolean hide) {
+        Window window = getWindow();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                if (hide) {
+                    controller.hide(WindowInsets.Type.statusBars());
+                    controller.setSystemBarsBehavior(
+                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                } else {
+                    controller.show(WindowInsets.Type.statusBars());
+                }
+            }
+            return;
+        }
+        View decor = window.getDecorView();
+        int flags = decor.getSystemUiVisibility();
+        if (hide) {
+            flags |= View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+        } else {
+            flags &= ~(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        }
+        decor.setSystemUiVisibility(flags);
+    }
+
     private void openExternal(String url) {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
@@ -254,6 +295,7 @@ public class MainActivity extends Activity {
             }
         }
         decor.setSystemUiVisibility(flags);
+        applyImmersive(hideStatusBar);
         if (webView != null) {
             webView.setBackgroundColor(background);
         }

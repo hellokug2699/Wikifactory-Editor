@@ -1,3 +1,3 @@
-c7ee0328f6844da2fe3114c527e5dbfa779b7fe3ac39efde60eac770ca412f32  Wikifactory-Editor-v1.1.4-android.apk
-74d4e7b7e4a3e82f461310606ed25ba4218d298ee234c9ee67973de04c99bb7e  Wikifactory-Editor-v1.1.4-web.zip
-e470681d0fe6404314881f1c133d9a62d7e2d5c42885dc8b9bdd5106efabb65e  Wikifactory-Editor-v1.1.4-windows-x64.exe
+765af4e09a4fd36d5bd19a03115453ab61cad6d8e9d2fd13ae50df695e544411  Wikifactory-Editor-v1.1.5-android.apk
+4c6f3b900153a9ee7cb4d37cd345f5220a1d927b4a81b2316148950c2ef342d7  Wikifactory-Editor-v1.1.5-web.zip
+0649f8505ddc3931ce9790934ee793b6cec7db699ac2c4b755c5fed82505b1de  Wikifactory-Editor-v1.1.5-windows-x64.exe

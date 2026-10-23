@@ -1463,6 +1463,7 @@ function openImageDialog() {
 /* --------------------------------------------------------------- settings */
 
 function openSettings() {
+  const canHideStatusBar = typeof window.AndroidEditor?.setImmersive === 'function';
   const body = document.createElement('div');
   body.innerHTML = `
     <div class="form-grid">
@@ -1534,6 +1535,11 @@ function openSettings() {
         </select>
         <p class="form-help">退出时若本次会话有未保存修改，会按此设置处理；提示窗口内也会告知此入口。</p>
       </label>
+      ${canHideStatusBar ? `
+      <label class="check-row">
+        <input type="checkbox" id="set-hide-statusbar" ${state.settings.hideStatusBar ? 'checked' : ''}>
+        <span>隐藏 Android 系统状态栏（沉浸显示）</span>
+      </label>` : ''}
       <div class="button-row">
         <button class="btn btn-small" type="button" id="set-check-update">立即检查更新</button>
         <button class="btn btn-small" type="button" id="set-contributing">查看 Content 使用须知</button>
@@ -1628,9 +1634,12 @@ function openSettings() {
         state.settings.wrap = body.querySelector('#set-wrap').checked;
         state.settings.updateCheck = body.querySelector('#set-update-check').checked;
         state.settings.exitBehavior = body.querySelector('#set-exit-behavior').value;
+        const statusBarInput = body.querySelector('#set-hide-statusbar');
+        if (statusBarInput) state.settings.hideStatusBar = statusBarInput.checked;
         const remember = rememberInput.checked;
         state.settings.rememberToken = remember;
         applyEditorPrefs();
+        applyStatusBarPreference();
         saveState(state);
 
         if (!sessionToken) {
@@ -1670,6 +1679,17 @@ function applyEditorPrefs() {
   document.documentElement.style.setProperty('--editor-font-size', `${size}px`);
   bodyEditor.setWrap(state.settings.wrap);
   fmEditor.setWrap(state.settings.wrap);
+}
+
+/** Android-only immersive toggle exposed by MainActivity.setImmersive(). */
+function applyStatusBarPreference() {
+  const bridge = window.AndroidEditor;
+  if (!bridge || typeof bridge.setImmersive !== 'function') return;
+  try {
+    bridge.setImmersive(state.settings.hideStatusBar ? 'true' : 'false');
+  } catch (error) {
+    console.warn('[android] 状态栏设置失败', error);
+  }
 }
 
 /* -------------------------------------------------------- updates / guide */
@@ -1866,16 +1886,25 @@ function discardSessionChanges() {
 }
 
 function exitApplication() {
-  if (window.Neutralino?.app?.exit) {
-    window.Neutralino.app.exit();
-    return;
-  }
+  // Android WebView also loads the Neutralino shim, so the bridge must win there.
   if (window.AndroidEditor?.exitApp) {
     window.AndroidEditor.exitApp();
     return;
   }
+  if (window.NL_PORT && window.Neutralino?.app?.exit) {
+    window.Neutralino.app.exit();
+    return;
+  }
   window.close();
-  toast('浏览器不允许脚本关闭标签页；更改已按你的选择处理，可直接关闭窗口。', 'info', 4600);
+  setTimeout(() => {
+    if (document.hidden) return;
+    const modal = openModal({
+      title: '无法自动关闭窗口',
+      subtitle: `Wikifactory Editor v${APP_VERSION}`,
+      body: '<div class="form-note">浏览器不允许脚本关闭标签页。更改已按你的选择处理，可以手动关闭当前窗口。</div>',
+      footer: [{ label: '我知道了', className: 'btn-primary', onClick: () => modal.close() }],
+    });
+  }, 300);
 }
 
 function openExitDialog() {
@@ -2450,6 +2479,7 @@ function restoreInitialUi() {
   applyTheme(state.theme);
   initThemeWatcher(() => state.theme);
   applyEditorPrefs();
+  applyStatusBarPreference();
   applyIcons(document);
   renderToolbar();
   syncEditorVisibility();
