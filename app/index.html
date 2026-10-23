@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Wikifactory Content 贡献者编辑器：语法高亮 Markdown / Wiki 语法 / 表格与图片 / 客户端 GitHub PR">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src https://api.github.com ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Wikifactory Editor</title>
+  <link rel="icon" href="assets/icons/app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell">
+    <header class="topbar">
+      <button class="icon-btn mobile-only" id="btn-sidebar" aria-label="打开侧栏" title="侧栏">
+        <span data-icon="panel-left"></span>
+      </button>
+
+      <div class="brand" aria-label="Wikifactory Editor">
+        <img src="assets/icons/app-icon.svg" alt="" class="brand-icon">
+        <div class="brand-text">
+          <strong>Wikifactory</strong>
+          <span>Editor</span>
+        </div>
+      </div>
+
+      <div class="mode-tabs" aria-label="编辑范围">
+        <div class="mode-tab is-active">
+          <span class="mode-dot mode-dot-content"></span>Content
+          <small>页面编辑</small>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="connection-pill" id="btn-connection" title="GitHub 连接设置">
+          <span class="connection-dot" id="connection-dot"></span>
+          <span id="connection-label">未连接</span>
+        </button>
+        <button class="icon-btn" id="btn-theme" aria-label="切换主题" title="切换主题">
+          <span data-icon="sun"></span>
+        </button>
+        <button class="icon-btn desktop-only" id="btn-settings" aria-label="GitHub 设置" title="GitHub 设置">
+          <span data-icon="settings"></span>
+        </button>
+        <button class="icon-btn" id="btn-help" aria-label="帮助与语法速查" title="帮助">
+          <span data-icon="help"></span>
+        </button>
+        <button class="btn btn-ghost desktop-only" id="btn-preview" title="预览页面 (Ctrl+Enter)">
+          <span data-icon="eye"></span>预览
+        </button>
+        <button class="btn btn-primary" id="btn-pr" title="提交 Pull Request">
+          <span data-icon="git-pull-request"></span><span class="btn-label">提交 PR</span>
+        </button>
+        <button class="icon-btn mobile-only" id="btn-mobile-menu" aria-label="更多操作">
+          <span data-icon="more"></span>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar" id="sidebar" aria-label="文档设置">
+        <div class="sidebar-scroll">
+          <section class="mode-panel">
+            <div class="panel-section">
+              <div class="section-title">
+                <span>页面位置</span>
+                <span class="badge badge-content">Content</span>
+              </div>
+              <label class="field">
+                <span class="field-label">仓库路径</span>
+                <input id="content-path" class="input mono" spellcheck="false"
+                       placeholder="games/Game/Category/Page.md" autocomplete="off">
+              </label>
+              <div class="button-row">
+                <button class="btn btn-small" id="btn-content-browse">浏览</button>
+                <button class="btn btn-small" id="btn-content-load">加载</button>
+              </div>
+              <p class="hint">页面须位于 <code>games/&lt;游戏&gt;/&lt;分类&gt;/…/&lt;页面&gt;.md</code>。游戏目录名不得为 <code>search</code> / <code>pagefind</code> / <code>_astro</code> / <code>404</code> / <code>about</code>。</p>
+            </div>
+
+            <div class="panel-section">
+              <div class="section-title">
+                <span>页面元数据</span>
+                <button class="link-btn" id="btn-raw-frontmatter">原始 YAML</button>
+              </div>
+              <div id="fm-form" class="fm-form"></div>
+            </div>
+
+            <div class="panel-section">
+              <div class="section-title">
+                <span>待上传资源</span>
+                <span class="badge" id="asset-count">0</span>
+              </div>
+              <div id="asset-list" class="asset-list"></div>
+              <p class="hint">图片会在提交 PR 时一并写入 Content 仓库；关闭应用后未提交的图片需要重新选择。</p>
+            </div>
+
+            <div class="panel-section">
+              <div class="section-title"><span>编辑范围</span></div>
+              <div class="form-note">
+                仅可读取与修改 <code>hellokug2699/Wikifactory-Content</code>。Core / Alias 仓库不在本编辑器的访问范围内。
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="sidebar-bottom">
+          <div class="button-row">
+            <button class="btn btn-small" id="btn-save" title="保存本地草稿 (Ctrl+S)">
+              <span data-icon="save"></span>保存草稿
+            </button>
+            <button class="btn btn-small" id="btn-export" title="导出当前文件">
+              <span data-icon="download"></span>导出
+            </button>
+          </div>
+          <div class="shortcut-hint">
+            <span><kbd>Ctrl</kbd><kbd>S</kbd> 保存</span>
+            <span><kbd>Ctrl</kbd><kbd>Z</kbd> 撤销</span>
+            <span><kbd>Ctrl</kbd><kbd>Enter</kbd> 预览</span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+      <main class="editor-area" aria-label="编辑器">
+        <div class="editor-card">
+          <div class="editor-head">
+            <div class="doc-meta">
+              <div class="doc-title-row">
+                <h1 class="doc-title" id="doc-title">未命名页面</h1>
+                <span class="doc-mode-badge" id="doc-mode-badge">CONTENT</span>
+                <span class="highlight-badge"><span class="highlight-dot"></span>语法高亮</span>
+              </div>
+              <div class="doc-path" id="doc-path">games/Game/Category/Page.md</div>
+            </div>
+            <div class="doc-status" id="save-status">
+              <span class="status-dot"></span><span id="save-status-text">草稿已就绪</span>
+            </div>
+          </div>
+
+          <div class="editor-tabs" id="editor-tabs">
+            <button class="editor-tab is-active" data-tab="body">正文</button>
+            <button class="editor-tab" data-tab="frontmatter">元数据 YAML</button>
+          </div>
+
+          <div class="toolbar" id="toolbar" role="toolbar" aria-label="格式工具栏"></div>
+
+          <div class="editor-body" id="editor-body">
+            <div id="body-editor" class="editor-host"></div>
+            <div id="fm-editor" class="editor-host" hidden></div>
+          </div>
+
+          <div class="editor-foot">
+            <div class="stat-group">
+              <span id="stat-ln">行 1，列 1</span>
+              <span class="stat-sep">·</span>
+              <span id="stat-chars">0 字符</span>
+              <span class="stat-sep">·</span>
+              <span id="stat-issues" class="stat-issues">未检查</span>
+            </div>
+            <div class="stat-group">
+              <span id="stat-saved">本地草稿</span>
+              <span class="stat-sep">·</span>
+              <span id="stat-repo">hellokug2699/Wikifactory-Content</span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 预览页面：按需生成，非实时预览 -->
+  <section class="preview-overlay" id="preview-overlay" hidden aria-label="预览">
+    <header class="preview-topbar">
+      <div class="preview-heading">
+        <button class="icon-btn" id="btn-preview-close" aria-label="关闭预览" title="关闭 (Esc)">
+          <span data-icon="x"></span>
+        </button>
+        <div>
+          <div class="preview-kicker">PREVIEW</div>
+          <div class="preview-title" id="preview-title">页面预览</div>
+        </div>
+      </div>
+      <div class="preview-actions">
+        <div class="segmented" id="preview-device-toggle">
+          <button class="is-active" data-device="desktop" title="桌面宽度">桌面</button>
+          <button data-device="mobile" title="手机宽度">手机</button>
+        </div>
+        <button class="btn btn-small" id="btn-preview-refresh">
+          <span data-icon="refresh"></span>重新渲染
+        </button>
+        <button class="icon-btn" id="btn-preview-theme" title="切换预览主题">
+          <span data-icon="contrast"></span>
+        </button>
+      </div>
+    </header>
+    <div class="preview-scroll" id="preview-scroll">
+      <div class="preview-stage" id="preview-stage">
+        <article class="wiki-preview" id="preview-article"></article>
+        <aside class="preview-toc" id="preview-toc" hidden>
+          <div class="preview-toc-title">本页目录</div>
+          <nav id="preview-toc-nav"></nav>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <div class="modal-root" id="modal-root" hidden></div>
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="false"></div>
+
+  <noscript>
+    <div class="noscript">Wikifactory Editor 需要启用 JavaScript。</div>
+  </noscript>
+
+  <script src="assets/vendor/neutralino.js"></script>
+  <script type="module" src="assets/js/main.js"></script>
+</body>
+</html>

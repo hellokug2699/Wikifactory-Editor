@@ -1,0 +1,14 @@
+node_modules/
+desktop/resources/
+desktop/dist/
+desktop/bin/
+desktop/.cache/
+android/.gradle/
+android/build/
+android/.kotlin/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/
+dist/web/
+*.log
+.DS_Store

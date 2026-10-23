@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Wikifactory Editor">
+  <defs>
+    <linearGradient id="g" x1="24" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6b93ff"/>
+      <stop offset=".55" stop-color="#4f7cff"/>
+      <stop offset="1" stop-color="#27c4c4"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="#0b1220"/>
+  <rect x="8" y="8" width="240" height="240" rx="50" fill="url(#g)"/>
+  <rect x="8" y="8" width="240" height="240" rx="50" fill="url(#sheen)"/>
+  <g fill="#ffffff" opacity=".16">
+    <circle cx="52" cy="52" r="3"/>
+    <circle cx="76" cy="52" r="3"/>
+    <circle cx="100" cy="52" r="3"/>
+    <circle cx="52" cy="76" r="3"/>
+    <circle cx="76" cy="76" r="3"/>
+    <circle cx="100" cy="76" r="3"/>
+  </g>
+  <path d="M54 82l32 94 42-62 42 62 32-94" fill="none" stroke="#ffffff" stroke-width="18"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M54 82l32 94 42-62 42 62 32-94" fill="none" stroke="#0b1220" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" opacity=".14"/>
+  <path d="M186 172h20a10 10 0 0 1 10 10v18" fill="none" stroke="#ffffff" stroke-width="7"
+        stroke-linecap="round" opacity=".55"/>
+</svg>
