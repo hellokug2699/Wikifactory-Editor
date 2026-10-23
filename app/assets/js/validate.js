@@ -29,6 +29,11 @@ export const IMAGE_SIZES = ['sm', 'md', 'lg', 'full'];
 export const IMAGE_ALIGNS = ['left', 'center', 'right'];
 export const ICON_SIZES = ['sm', 'md', 'lg'];
 
+/** Gate (scripts/validate-content.mjs + config/thumbnails.json) asset layout. */
+export const GAME_IMAGE_DIR = 'assets/images';
+export const GAME_ICON_DIR = 'assets/icons';
+export const ICON_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
+
 export const COLOR_TOKENS = {
   R: '#c62828',
   O: '#ef6c00',
@@ -117,7 +122,9 @@ function stripQuotes(value) {
 function splitInlineList(value) {
   const inner = value.slice(1, -1).trim();
   if (!inner) return [];
-  return inner.split(',').map((part) => stripQuotes(part.trim())).filter(Boolean);
+  return inner.split(',')
+    .map((part) => coerceValue(part.trim()))
+    .filter((item) => item !== '' && item !== null && item !== undefined);
 }
 
 function coerceValue(raw) {
@@ -127,7 +134,7 @@ function coerceValue(raw) {
     return stripQuotes(value);
   }
   if (value.startsWith('[') && value.endsWith(']')) return splitInlineList(value);
-  if (/^(true|false)$/i.test(value)) return value.toLowerCase() === 'true';
+  if (/^(true|false)$/.test(value)) return value === 'true';
   if (/^(null|~)$/i.test(value)) return null;
   if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
   return value.split(' #')[0].trim();
@@ -276,20 +283,36 @@ export function validateFrontmatter(raw) {
   issues.push(...yamlIssues);
 
   if (raw.trim()) {
-    if ('title' in map && typeof map.title !== 'string') issues.push(issue('error', 'title 必须是字符串'));
-    if ('description' in map && typeof map.description !== 'string') issues.push(issue('error', 'description 必须是字符串'));
-    if ('tags' in map && !Array.isArray(map.tags)) issues.push(issue('error', 'tags 必须是字符串数组'));
-    if ('order' in map && typeof map.order !== 'number') issues.push(issue('error', 'order 必须是数字'));
-    if ('draft' in map && typeof map.draft !== 'boolean') issues.push(issue('error', 'draft 必须是布尔值'));
-    if ('toc' in map && typeof map.toc !== 'boolean') issues.push(issue('error', 'toc 必须是布尔值'));
-    if ('updated' in map) {
-      const value = map.updated;
-      const ok = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
-      if (!ok) issues.push(issue('error', 'updated 必须是 YYYY-MM-DD 格式的合法日期'));
+    // Mirrors scripts/validate-content.mjs: null counts as "unset"; quoted values stay strings.
+    if ('title' in map && map.title !== null && typeof map.title !== 'string') issues.push(issue('error', 'title 必须是字符串'));
+    if ('description' in map && map.description !== null && typeof map.description !== 'string') issues.push(issue('error', 'description 必须是字符串'));
+    if ('tags' in map && map.tags !== null) {
+      if (!Array.isArray(map.tags)) issues.push(issue('error', 'tags 必须是字符串数组'));
+      else if (map.tags.some((tag) => typeof tag !== 'string')) issues.push(issue('error', 'tags 的数组元素必须全部是字符串'));
+    }
+    if ('order' in map && map.order !== null && typeof map.order !== 'number') issues.push(issue('error', 'order 必须是数字'));
+    if ('draft' in map && map.draft !== null && typeof map.draft !== 'boolean') issues.push(issue('error', 'draft 必须是布尔值'));
+    if ('toc' in map && map.toc !== null && typeof map.toc !== 'boolean') issues.push(issue('error', 'toc 必须是布尔值'));
+    if ('updated' in map && map.updated !== null) {
+      const ok = isValidGateDate(map.updated);
+      if (!ok) issues.push(issue('error', 'updated 必须是合法日期（YYYY-MM-DD 或 ISO 时间）'));
     }
     if (!map.title) issues.push(issue('warn', '未填写 title，页面将使用文件名作为标题'));
   }
   return issues;
+}
+
+/** Same date rule as the content gate (date or ISO timestamp, real calendar day). */
+export const GATE_DATE_RE =
+  /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+export function isValidGateDate(value) {
+  if (typeof value !== 'string' || !GATE_DATE_RE.test(value)) return false;
+  if (Number.isNaN(Date.parse(value))) return false;
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  if (month < 1 || month > 12) return false;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day >= 1 && day <= lastDay;
 }
 
 /* ------------------------------------------------------------ wiki syntax */
@@ -431,6 +454,101 @@ export function validateWikiSyntax(text) {
   }
 
   return issues;
+}
+
+/* --------------------------------------------------- repository-level gate */
+
+export function gameOfPath(path) {
+  return /^games\/([^/]+)\//.exec(normalizePath(path))?.[1] || '';
+}
+
+/** `[icon=name;…]` references outside fenced / inline code, in source order. */
+export function extractIconRefs(text) {
+  const masked = maskCode(String(text || ''));
+  const refs = [];
+  for (const match of masked.matchAll(/\[icon=([^\]\n]+)\]/gi)) {
+    const name = match[1].split(';')[0].trim();
+    refs.push({ name, raw: match[0], line: lineOf(masked, match.index) });
+  }
+  return refs;
+}
+
+/** Icon name stems available under games/<game>/assets/icons/. */
+export function repositoryIconNames(repoPaths, game) {
+  const names = new Set();
+  if (!game) return names;
+  const prefix = `games/${game}/${GAME_ICON_DIR}/`;
+  for (const path of repoPaths) {
+    if (!path.startsWith(prefix)) continue;
+    const rest = path.slice(prefix.length);
+    if (!rest || rest.includes('/')) continue;
+    const dot = rest.lastIndexOf('.');
+    if (dot <= 0) continue;
+    const ext = rest.slice(dot + 1).toLowerCase();
+    if (!ICON_EXTENSIONS.includes(ext)) continue;
+    names.add(rest.slice(0, dot));
+  }
+  return names;
+}
+
+function iconPathHint(game, name) {
+  return `games/${game}/${GAME_ICON_DIR}/${name}.${ICON_EXTENSIONS[0]}`;
+}
+
+/** Errors when `[icon=…]` has no matching file — same rule as the content gate. */
+export function validateIconAvailability(body, { game, iconNames }) {
+  const issues = [];
+  if (!game || !iconNames) return issues;
+  const seen = new Set();
+  for (const ref of extractIconRefs(body)) {
+    if (!ref.name || seen.has(ref.name)) continue;
+    seen.add(ref.name);
+    if (!ICON_NAME_RE.test(ref.name) || ref.name.includes('..')) continue;
+    if (!iconNames.has(ref.name)) {
+      issues.push(issue('error', `图标不存在：${iconPathHint(game, ref.name)}（内容门禁会阻断）`, { line: ref.line }));
+    }
+  }
+  return issues;
+}
+
+const REPO_PAGE_RE = /\.(md|mdx)$/i;
+
+/** Duplicate URL / case-only conflicts against the repository tree. */
+export function validateRepoConflicts({ path, repoPaths }) {
+  const issues = [];
+  const target = normalizePath(path);
+  if (!target || !REPO_PAGE_RE.test(target)) return issues;
+  const targetId = target.replace(REPO_PAGE_RE, '');
+  const lower = targetId.toLowerCase();
+  const reported = new Set();
+  for (const other of repoPaths) {
+    if (!REPO_PAGE_RE.test(other)) continue;
+    const otherId = other.replace(REPO_PAGE_RE, '');
+    if (otherId === targetId) {
+      if (other !== target && !reported.has(otherId)) {
+        reported.add(otherId);
+        issues.push(issue('error', `重复 URL：${other} 与 ${target} 会映射到同一路径`, { source: 'repo' }));
+      }
+      continue;
+    }
+    if (otherId.toLowerCase() === lower && !reported.has(lower)) {
+      reported.add(lower);
+      issues.push(issue('error', `URL 大小写冲突：${other} 与 ${target}`, { source: 'repo' }));
+    }
+  }
+  return issues;
+}
+
+/** Repository-backed checks used before a PR: icon files and URL conflicts. */
+export function validateWithRepo({ path, body, repoPaths, extraPaths = [] }) {
+  if (!Array.isArray(repoPaths) || !repoPaths.length) return [];
+  const allPaths = extraPaths.length ? [...repoPaths, ...extraPaths] : repoPaths;
+  const game = gameOfPath(path);
+  return [
+    ...validateIconAvailability(body, { game, iconNames: repositoryIconNames(allPaths, game) })
+      .map((item) => ({ ...item, source: 'repo' })),
+    ...validateRepoConflicts({ path, repoPaths: allPaths }),
+  ];
 }
 
 /* -------------------------------------------------------------- aggregate */

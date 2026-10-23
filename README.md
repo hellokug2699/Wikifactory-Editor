@@ -6,6 +6,14 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.1.4 功能修复
+
+- **资源目录按类型区分**：正文大图上传到 `games/<游戏>/assets/images/`，`[icon=…]` 内联图标上传到 `games/<游戏>/assets/icons/`。图标对话框新增文件上传与路径校验，不再出现"图标建议放 images"的误导。
+- **图标存在性校验**：插入图标时先读取 Content 仓库文件树，确认 `assets/icons/<名称>.<ext>` 是否存在；缺失会阻断插入并提示应先上传。待上传的图标计入本次 PR，不会误报。
+- **本地对齐内容门禁**：新增与 `scripts/validate-content.mjs` 同构的检查——路径层级、frontmatter 类型（含 `null`、ISO 日期、字符串数组元素）、`[icon=]` 文件存在性、重复 URL（`.md` / `.mdx`）与大小写冲突；提交 PR 前会强制刷新仓库文件树重新校验，问题在本地暴露而不是等 CI。
+- 校验失败时仍会展示具体文件与行号（如 `games/<游戏>/assets/icons/xxx.svg`），可直接跳到对应行修改。
+- 版本号：**1.1.4**（Android versionCode 6）。
+
 ## v1.1.3 功能更新
 
 - **启动检查更新**：每次启动通过 GitHub API 读取编辑器仓库的最新 Release，仅提示版本与说明，**不自动下载**；设置页可关闭，也可以在提示窗口中勾选「不再在启动时检查更新」。
@@ -34,13 +42,13 @@
 - **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
 - 版本号：**1.1.1**（Android versionCode 3）。
 
-## 下载（v1.1.3）
+## 下载（v1.1.4）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.3-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.3/Wikifactory-Editor-v1.1.3-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.3-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.3/Wikifactory-Editor-v1.1.3-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.3-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.3/Wikifactory-Editor-v1.1.3-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.4-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.4/Wikifactory-Editor-v1.1.4-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.4-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.4/Wikifactory-Editor-v1.1.4-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.4-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.4/Wikifactory-Editor-v1.1.4-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -53,9 +61,9 @@
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-0c8636af3f8a320eb4362228cae5ae42819667b9f478387a6d7acfe8db446a02  Wikifactory-Editor-v1.1.3-android.apk
-e6ff69374123a122dad83b7637fd809c4e0f4fa63c8a86a96608a22ee39ea2ad  Wikifactory-Editor-v1.1.3-windows-x64.exe
-0246e14de61bd11539cacbaa3183e014eb7e5af2d4e79f8cadc120ade25b2052  Wikifactory-Editor-v1.1.3-web.zip
+c7ee0328f6844da2fe3114c527e5dbfa779b7fe3ac39efde60eac770ca412f32  Wikifactory-Editor-v1.1.4-android.apk
+e470681d0fe6404314881f1c133d9a62d7e2d5c42885dc8b9bdd5106efabb65e  Wikifactory-Editor-v1.1.4-windows-x64.exe
+74d4e7b7e4a3e82f461310606ed25ba4218d298ee234c9ee67973de04c99bb7e  Wikifactory-Editor-v1.1.4-web.zip
 ```
 
 ## 功能
@@ -84,6 +92,7 @@ e6ff69374123a122dad83b7637fd809c4e0f4fa63c8a86a96608a22ee39ea2ad  Wikifactory-Ed
 - 一键格式：粗体插入 `****` 并把光标放在中间；斜体、删除线、行内代码同理；支持标题、引用、列表、任务列表、代码块、标准 Markdown 链接。
 - 表格生成器：任意数据行数 × 列数（1–50 × 1–12）、表头、对齐、紧凑格式、**自定义单元格填充模板**（`{r}` / `{c}` / `{r0}` / `{c0}`）与高级源码模板。
 - 图片插入：任意图片格式；可选 Wiki `[[File/…]]`、标准 Markdown `![]()` 或自定义模板；可随 PR 上传到 `games/<游戏>/assets/images/`。
+- 图标插入：`[icon=…]` 从 `games/<游戏>/assets/icons/` 读取；对话框会检查图标文件是否存在，并可把新图标随 PR 上传到同一目录。
 - 横幅、图标、表格颜色、站内链接都有对应插入对话框。
 - 本地草稿自动保存；`Ctrl+S` 立即保存；`Ctrl+Z` / `Ctrl+Shift+Z` 撤销重做；支持导出当前文件。
 
@@ -98,6 +107,7 @@ e6ff69374123a122dad83b7637fd809c4e0f4fa63c8a86a96608a22ee39ea2ad  Wikifactory-Ed
 - 有写权限时直接从最新 base 创建临时分支并提交；没有写权限时自动 Fork → 同步 Fork → 向 Content 仓库发起 PR。
 - 一次 PR 可同时提交正文与多张图片；支持 Draft PR、自定义分支名 / 提交信息 / PR 标题与说明。
 - **分支名由用户保留**：编辑器不会自动追加后缀；若分支名被其他人占用，会弹出错误窗口，要求你更换分支名后重试。
+- **提交前本地门禁**：进入 PR 前会刷新 `Wikifactory-Content` 的文件树，执行路径层级、frontmatter 类型、`[icon=]` 图标存在性、重复 URL / 大小写冲突检查；有错误时阻断提交，并给出具体文件与行号。
 - **Content 仓库不要求分支 up-to-date**：编辑器不检查也不阻塞；每次从最新 base 创建分支。
 - 成功后显示 PR 链接，可复制链接。
 
@@ -234,7 +244,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.3-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.4-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 ```

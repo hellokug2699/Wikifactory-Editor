@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   joinDocument, splitFrontmatter, setYamlField, frontmatterData,
-  validateContentPath, validateWikiSyntax, validateDocument,
+  validateContentPath, validateWikiSyntax, validateDocument, validateWithRepo,
+  validateFrontmatter, extractIconRefs, repositoryIconNames,
 } from '../app/assets/js/validate.js';
 import { APP_VERSION } from '../app/assets/js/state.js';
 
@@ -94,6 +95,58 @@ test('aggregate validation sources', () => {
 test('APP_VERSION matches package.json', () => {
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(APP_VERSION, pkg.version);
+});
+
+test('frontmatter types follow the content gate', () => {
+  assert.equal(validateFrontmatter('title: null').filter((i) => i.severity === 'error').length, 0);
+  assert.ok(validateFrontmatter('order: "5"').some((i) => i.severity === 'error'));
+  assert.ok(validateFrontmatter('tags: [1, 2]').some((i) => i.severity === 'error'));
+  assert.equal(validateFrontmatter('updated: 2026-10-13T08:30:00Z').filter((i) => i.severity === 'error').length, 0);
+  assert.ok(validateFrontmatter('updated: 2026-02-30').some((i) => i.severity === 'error'));
+});
+
+test('icon refs are extracted outside code blocks', () => {
+  const refs = extractIconRefs('[icon=iron-plate] [icon=screw;size=lg]\n```\n[icon=ignored]\n```');
+  assert.deepEqual(refs.map((ref) => ref.name), ['iron-plate', 'screw']);
+});
+
+test('icon availability matches games/<game>/assets/icons', () => {
+  const repoPaths = [
+    'games/Satisfactory/assets/icons/iron-plate.svg',
+    'games/Satisfactory/assets/icons/screw.png',
+    'games/Satisfactory/assets/images/factory.png',
+    'games/Factorio/assets/icons/gear.svg',
+  ];
+  assert.deepEqual([...repositoryIconNames(repoPaths, 'Satisfactory')].sort(), ['iron-plate', 'screw']);
+  const body = '[icon=iron-plate] [icon=gear] [icon=missing]';
+  const issues = validateWithRepo({ path: 'games/Satisfactory/Buildings/MAM.md', body, repoPaths });
+  const missing = issues.filter((i) => i.message.includes('图标不存在'));
+  assert.equal(missing.length, 2);
+  assert.ok(missing.some((i) => i.message.includes('games/Satisfactory/assets/icons/gear.svg')));
+  assert.ok(missing.some((i) => i.message.includes('games/Satisfactory/assets/icons/missing.svg')));
+  const withPending = validateWithRepo({
+    path: 'games/Satisfactory/Buildings/MAM.md',
+    body: '[icon=missing]',
+    repoPaths,
+    extraPaths: ['games/Satisfactory/assets/icons/missing.svg'],
+  });
+  assert.equal(withPending.filter((i) => i.message.includes('图标不存在')).length, 0);
+});
+
+test('duplicate URL and case conflicts are reported', () => {
+  const repoPaths = ['games/Satisfactory/Buildings/MAM.md', 'games/Satisfactory/Buildings/MAM.mdx'];
+  const issues = validateWithRepo({
+    path: 'games/Satisfactory/Buildings/MAM.md',
+    body: '',
+    repoPaths,
+  });
+  assert.ok(issues.some((i) => i.message.includes('重复 URL')));
+  const caseIssues = validateWithRepo({
+    path: 'games/Satisfactory/Buildings/mam.md',
+    body: '',
+    repoPaths: ['games/Satisfactory/Buildings/MAM.md'],
+  });
+  assert.ok(caseIssues.some((i) => i.message.includes('大小写冲突')));
 });
 
 console.log(`\n${passed} tests passed.`);

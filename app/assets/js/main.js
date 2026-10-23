@@ -7,8 +7,10 @@ import {
 } from './state.js';
 import { CodeEditor, CURSOR } from './code-editor.js';
 import {
-  CALLOUTS, COLOR_TOKENS, ICON_SIZES, countCharacters, frontmatterData, joinDocument,
-  setYamlField, splitFrontmatter, summarizeIssues, validateDocument,
+  CALLOUTS, COLOR_TOKENS, GAME_ICON_DIR, GAME_IMAGE_DIR, ICON_EXTENSIONS, ICON_SIZES,
+  ICON_NAME_RE, countCharacters, extractIconRefs, frontmatterData, gameOfPath, joinDocument,
+  repositoryIconNames, setYamlField, splitFrontmatter, summarizeIssues, validateDocument,
+  validateWithRepo,
 } from './validate.js';
 import { GitHubClient, GitHubError } from './github.js';
 import { clearToken, loadToken, saveToken, tokenStorageKind } from './secure-token.js';
@@ -158,7 +160,9 @@ function scheduleSave() {
 
 function scheduleValidation() {
   clearTimeout(validateTimer);
-  validateTimer = setTimeout(() => validateNow({ open: false }), 1100);
+  validateTimer = setTimeout(() => {
+    validateNow({ open: false }).catch((error) => console.warn('[validate] 校验失败', error));
+  }, 1100);
 }
 
 function updateSaveStatus() {
@@ -429,7 +433,7 @@ function handleToolbarAction(action) {
     case 'icon': openIconDialog(); break;
     case 'table': openTableDialog(); break;
     case 'cellColor': openCellColorDialog(); break;
-    case 'validate': validateNow({ open: true }); break;
+    case 'validate': validateNow({ open: true }).catch((error) => toast(`检查失败：${error.message}`, 'error')); break;
     case 'preview': openPreview(); break;
     default: break;
   }
@@ -493,8 +497,48 @@ function collectIssues() {
   });
 }
 
-function validateNow({ open = false } = {}) {
-  const issues = collectIssues();
+/** Cached repository file list used for gate-parity checks (icons, URL conflicts). */
+let repoIndex = null;
+
+async function ensureRepoIndex({ force = false } = {}) {
+  const ref = state.settings.branch || 'HEAD';
+  const ttl = repoIndex?.error ? 60 * 1000 : 5 * 60 * 1000;
+  if (repoIndex && repoIndex.ref === ref && !force && Date.now() - repoIndex.at < ttl) return repoIndex;
+  try {
+    const tree = await new GitHubClient(sessionToken).getTree(CONTENT_OWNER, CONTENT_REPO, ref);
+    repoIndex = {
+      ref,
+      paths: tree.filter((item) => item.type === 'blob').map((item) => item.path),
+      at: Date.now(),
+      error: null,
+    };
+  } catch (error) {
+    repoIndex = { ref, paths: null, at: Date.now(), error };
+  }
+  return repoIndex;
+}
+
+async function collectRepoIssues({ path = state.content.path, body = state.content.body } = {}) {
+  const index = await ensureRepoIndex();
+  if (!index.paths) return [];
+  // Pending uploads in this session will be part of the PR, so treat them as present.
+  return validateWithRepo({
+    path,
+    body,
+    repoPaths: index.paths,
+    extraPaths: assets.map((asset) => asset.path),
+  });
+}
+
+/** Sync rules + gate-parity repository rules (icon files, duplicate URLs). */
+async function collectIssuesWithRepo() {
+  const sync = collectIssues();
+  const repo = await collectRepoIssues().catch(() => []);
+  return [...sync, ...repo];
+}
+
+async function validateNow({ open = false } = {}) {
+  const issues = await collectIssuesWithRepo();
   lastIssues = issues;
   issuesStale = false;
   updateStats();
@@ -864,14 +908,26 @@ function openCalloutDialog() {
 
 function openIconDialog() {
   if (state.content.editorTab === 'frontmatter') { toast('请切换到正文。', 'info'); return; }
+  const game = gameOfPath(state.content.path);
   let name = '';
   let size = 'sm';
   let bg = '';
   let fg = '';
+  let picked = null;
   const body = document.createElement('div');
   body.innerHTML = `
     <div class="form-grid">
-      ${formField('图标名称', '<input class="input mono" id="icon-name" placeholder="iron-plate（不含扩展名）" autocomplete="off">', '图标须位于 <code>games/&lt;游戏&gt;/assets/icons/&lt;名称&gt;.&lt;ext&gt;</code>。')}
+      <div class="form-note is-accent">
+        图标属于<strong>内联小图标</strong>，放在 <code>games/&lt;游戏&gt;/${GAME_ICON_DIR}/&lt;名称&gt;.&lt;ext&gt;</code>；
+        正文大图放在 <code>/${GAME_IMAGE_DIR}/</code>，请使用「插入图片」。
+      </div>
+      <div class="form-grid-2">
+        <label class="field"><span class="form-label">图标文件（可选，svg / png / webp …）</span><input class="input" id="icon-file" type="file" accept=".svg,.png,.webp,.jpg,.jpeg,.avif,.gif"></label>
+        <label class="field"><span class="form-label">上传路径</span><input class="input mono" id="icon-upload-path" autocomplete="off" placeholder="${escapeHtml(`games/<游戏>/${GAME_ICON_DIR}/<名称>.<ext>`)}"></label>
+      </div>
+      <label class="check-row"><input type="checkbox" id="icon-upload" checked><span>随 PR 上传到该游戏的 assets/icons/</span></label>
+      ${formField('图标名称', '<input class="input mono" id="icon-name" placeholder="iron-plate（不含扩展名）" autocomplete="off">', `名称须与 <code>games/&lt;游戏&gt;/${GAME_ICON_DIR}/</code> 下的文件名主干一致，只允许字母 / 数字 / . _ -。`)}
+      <p class="form-help" id="icon-status"></p>
       <div>
         <span class="form-label">尺寸</span>
         <div class="chip-row" id="icon-sizes">${ICON_SIZES.map((item) => `<button type="button" class="chip ${item === size ? 'is-active' : ''}" data-size="${item}">${item}</button>`).join('')}</div>
@@ -882,6 +938,19 @@ function openIconDialog() {
     </div>
   `;
   const nameInput = body.querySelector('#icon-name');
+  const fileInput = body.querySelector('#icon-file');
+  const uploadCheck = body.querySelector('#icon-upload');
+  const uploadPathInput = body.querySelector('#icon-upload-path');
+  const statusEl = body.querySelector('#icon-status');
+
+  const defaultPath = (value, ext = ICON_EXTENSIONS[0]) => (
+    game ? `games/${game}/${GAME_ICON_DIR}/${value}.${ext}` : `${GAME_ICON_DIR}/${value}.${ext}`
+  );
+  const sanitizeName = (value) => String(value || '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
   const refresh = () => {
     const parts = [`icon=${name || 'name'}`];
     if (size !== 'sm') parts.push(`size=${size}`);
@@ -889,6 +958,42 @@ function openIconDialog() {
     if (fg) parts.push(`fg=&${fg}`);
     body.querySelector('#icon-preview').textContent = `[${parts.join(';')}]`;
   };
+
+  let statusSeq = 0;
+  const refreshStatus = async () => {
+    const seq = ++statusSeq;
+    statusEl.style.color = '';
+    if (!name) {
+      statusEl.textContent = '填写名称后会检查该图标是否已存在于仓库。';
+      return;
+    }
+    if (!ICON_NAME_RE.test(name) || name.includes('..')) {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = '名称不合法：只允许字母 / 数字 / . _ -，且不能包含 ..';
+      return;
+    }
+    const willUpload = !!picked && uploadCheck.checked;
+    if (willUpload) {
+      statusEl.textContent = `将随 PR 上传：${uploadPathInput.value.trim() || defaultPath(name)}`;
+      return;
+    }
+    if (assets.some((asset) => asset.path === defaultPath(name))) {
+      statusEl.textContent = '该图标已加入本次待上传列表。';
+      return;
+    }
+    const index = await ensureRepoIndex();
+    if (seq !== statusSeq) return;
+    if (!index.paths) {
+      statusEl.textContent = '无法读取仓库文件列表，暂不能确认图标是否存在；提交前会再次检查。';
+      return;
+    }
+    const exists = repositoryIconNames(index.paths, game).has(name);
+    statusEl.style.color = exists ? 'var(--success)' : 'var(--danger)';
+    statusEl.textContent = exists
+      ? `已在仓库中找到：games/${game}/${GAME_ICON_DIR}/${name}.<ext>`
+      : `仓库中不存在：${defaultPath(name)}（内容门禁会阻断，请上传或修正名称）`;
+  };
+
   body.addEventListener('click', (event) => {
     const sizeChip = event.target.closest('[data-size]');
     if (sizeChip) {
@@ -906,8 +1011,47 @@ function openIconDialog() {
       refresh();
     }
   });
-  nameInput.addEventListener('input', () => { name = nameInput.value.trim(); refresh(); });
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!ICON_EXTENSIONS.includes(ext)) {
+      fileInput.value = '';
+      toast(`图标格式 .${ext || '?'} 不受支持：${ICON_EXTENSIONS.join(' / ')}`, 'error', 4200);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      picked = {
+        file,
+        dataUrl: String(reader.result),
+        base64: String(reader.result).split(',')[1] || '',
+        size: file.size,
+        ext,
+      };
+      name = sanitizeName(file.name);
+      nameInput.value = name;
+      uploadPathInput.value = defaultPath(name, ext);
+      uploadCheck.checked = true;
+      refresh();
+      refreshStatus();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  let statusTimer = 0;
+  nameInput.addEventListener('input', () => {
+    name = nameInput.value.trim();
+    if (picked) uploadPathInput.value = defaultPath(sanitizeName(name), picked.ext);
+    refresh();
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(refreshStatus, 300);
+  });
+  uploadCheck.addEventListener('change', refreshStatus);
+  uploadPathInput.addEventListener('input', refreshStatus);
   refresh();
+  refreshStatus();
 
   const modal = openModal({
     title: '插入内联图标',
@@ -915,14 +1059,48 @@ function openIconDialog() {
     body,
     footer: [
       { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
-      { label: '插入', className: 'btn-primary', onClick: () => {
+      { label: '插入', className: 'btn-primary', onClick: async () => {
         if (!name) { toast('请填写图标名称。', 'error'); return; }
+        if (!ICON_NAME_RE.test(name) || name.includes('..')) {
+          toast('图标名称不合法：只允许字母 / 数字 / . _ -。', 'error');
+          return;
+        }
+        if (!game) {
+          toast('请先在「页面位置」填写 games/<游戏>/… 路径，图标必须放在该游戏的 assets/icons/ 下。', 'error', 4600);
+          return;
+        }
+        const willUpload = !!picked && uploadCheck.checked;
+        const uploadPath = (uploadPathInput.value.trim() || defaultPath(name, picked?.ext)).replace(/^\/+/, '');
+        if (willUpload) {
+          if (!uploadPath || uploadPath.includes('..') || uploadPath.startsWith('/')) {
+            toast('上传路径不合法。', 'error');
+            return;
+          }
+          if (!uploadPath.startsWith(`games/${game}/${GAME_ICON_DIR}/`)) {
+            toast(`图标上传路径必须位于 games/${game}/${GAME_ICON_DIR}/。`, 'error', 4200);
+            return;
+          }
+          const existing = assets.findIndex((asset) => asset.path === uploadPath);
+          const asset = { path: uploadPath, name: `${name}.${picked.ext}`, dataUrl: picked.dataUrl, base64: picked.base64, size: picked.size };
+          if (existing >= 0) assets.splice(existing, 1, asset);
+          else assets.push(asset);
+          renderAssets();
+        } else {
+          const index = await ensureRepoIndex();
+          if (index.paths && !repositoryIconNames(index.paths, game).has(name)) {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = `仓库中不存在：${defaultPath(name)}`;
+            toast(`图标不存在：${defaultPath(name)}。请上传图标或修正名称，否则门禁会阻断 PR。`, 'error', 5200);
+            return;
+          }
+        }
         const parts = [`icon=${name}`];
         if (size !== 'sm') parts.push(`size=${size}`);
         if (bg) parts.push(`bg=&${bg}`);
         if (fg) parts.push(`fg=&${fg}`);
         bodyEditor.insert(`[${parts.join(';')}]`);
         modal.close();
+        toast(willUpload ? `图标已加入待上传列表：${uploadPath}` : '已插入图标标记。', 'success');
       } },
     ],
   });
@@ -1107,10 +1285,10 @@ function openImageDialog() {
   let picked = null;
   let style = state.settings.templates.imageStyle || 'wiki';
 
-  const currentGame = /^games\/([^/]+)\//.exec(state.content.path || '')?.[1] || '';
+  const currentGame = gameOfPath(state.content.path);
   const defaultPath = (name) => currentGame
-    ? `games/${currentGame}/assets/images/${name}`
-    : `assets/images/${name}`;
+    ? `games/${currentGame}/${GAME_IMAGE_DIR}/${name}`
+    : `${GAME_IMAGE_DIR}/${name}`;
 
   const body = document.createElement('div');
   body.innerHTML = `
@@ -1120,8 +1298,12 @@ function openImageDialog() {
         <label class="field"><span class="form-label">文件名 / 引用名</span><input class="input mono" id="img-name" placeholder="iron-plate.png" autocomplete="off"></label>
       </div>
       <div class="form-note">上传是可选的。勾选「随 PR 上传」后，图片会写入 Content 仓库；不勾选则只插入标记，图片需已在仓库中。</div>
+      <div class="form-note is-accent">
+        资源按类型分目录：<strong>正文大图 → <code>${GAME_IMAGE_DIR}/</code></strong>（本窗口），
+        <strong>内联图标 <code>[icon=…]</code> → <code>${GAME_ICON_DIR}/</code></strong>（请使用工具栏「图标」）。
+      </div>
       <label class="check-row"><input type="checkbox" id="img-upload" checked><span>随 PR 上传到 Content 仓库</span></label>
-      ${formField('上传路径', '<input class="input mono" id="img-upload-path" autocomplete="off">', 'Content 图片建议放在 <code>games/&lt;游戏&gt;/assets/images/</code>；Wiki 语法要求名称只含字母 / 数字 / . _ -。')}
+      ${formField('上传路径', '<input class="input mono" id="img-upload-path" autocomplete="off">', `正文图片默认放在 <code>games/&lt;游戏&gt;/${GAME_IMAGE_DIR}/</code>；Wiki 语法要求名称只含字母 / 数字 / . _ -。`)}
       <div class="form-grid-2">
         <label class="field"><span class="form-label">尺寸预设</span>
           <select class="input" id="img-size"><option value="sm">sm · 240</option><option value="md" selected>md · 480</option><option value="lg">lg · 800</option><option value="full">full · 100%</option></select>
@@ -1846,10 +2028,15 @@ async function openPrDialog({ prefill = null } = {}) {
   const doc = assembleDocument();
   let issues = [];
   try {
-    issues = collectIssues();
+    // Refresh the repo tree so icon existence / URL conflicts reflect the latest main.
+    await ensureRepoIndex({ force: true });
+    issues = await collectIssuesWithRepo();
   } catch (error) {
     toast(`检查失败：${error.message}`, 'error');
     return;
+  }
+  if (!repoIndex?.paths) {
+    toast('无法读取 Content 仓库文件列表，本次仅执行本地规则检查（图标存在性 / URL 冲突未校验）。', 'info', 4600);
   }
   lastIssues = issues;
   issuesStale = false;
