@@ -123,6 +123,7 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.1.8-android.ap
 注意事项：
 
 - 只保存 base64 文本，不要把 keystore 或密码提交到仓库；
+- `ANDROID_KEYSTORE_BASE64` 必须是完整的单行文本（长度应为 4 的倍数）；工作流会先用 `keytool` 校验 keystore 能否打开，失败时会直接提示，而不是等到 apksigner 才报错；
 - 请离线备份 keystore 与密码：丢失后已安装用户无法覆盖升级，只能卸载重装；
 - 若希望敏感操作更可控，可在 Settings → Environments 新建 `release` 环境并添加 Required reviewers，再把 secrets 放在该环境下。
 
