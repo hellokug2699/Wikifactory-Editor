@@ -6,6 +6,16 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.1.6 质量更新
+
+- **token 默认不保存**：「记住 token」默认关闭，token 只留在内存；需要自动恢复时由用户显式勾选（仍为加密存储）。
+- **token 权限预检**：设置中的「测试连接」会读取经典 token 的 `x-oauth-scopes`，并结合仓库 `permissions.push` 与 Fork 状态，明确显示「写权限 / 只读 / 无法确认」。只读时直接提示无法提交 PR 及需要补充的权限。
+- **首次提交前确认**：第一次提交 PR 前弹出权限确认窗口（账号、权限头、上游写权限、Fork 状态、所需权限），确认后不再重复；只读 token 会被拦下。
+- **预览图片按需加载**：仓库已有图片不再只是占位块——占位块显示文件名与 alt，点击后才从 `raw.githubusercontent.com` 请求该图片；加载失败会明确提示，便于校对引用。
+- **分支名冲突一键建议**：冲突窗口预填「内容页-日期-短哈希」建议名，并提供「换一个建议」；可直接采纳后重试。
+- **行号栏可配置**：新增「行号栏：自动（移动端隐藏）/ 始终显示 / 始终隐藏」，底部状态栏始终显示「行 当前/总行数，列」。
+- 版本号：**1.1.6**（Android versionCode 8）。
+
 ## v1.1.5 质量更新
 
 - **隐藏 Android 状态栏**：设置页新增「隐藏 Android 系统状态栏（沉浸显示）」，仅 Android 应用可见；使用 `WindowInsetsController`（API 30+）或全屏标志（API 26–29）隐藏状态栏，滑动顶部可临时呼出。设置会持久化并在每次启动时恢复。
@@ -32,7 +42,7 @@
 ## v1.1.2 功能修复
 
 - **允许粘贴**：token 输入框仍禁止复制 / 剪切 / 拖拽，但支持 `Ctrl/⌘+V`、右键菜单与移动端长按粘贴（1.1.1 一并屏蔽了右键菜单，导致部分设备无法粘贴）。
-- **记住 token**：新增「记住 token」选项（默认开启），token 加密保存在本机，下次启动自动恢复并验证，无需每次重新填写。
+- **记住 token**：新增「记住 token」选项（1.1.6 起默认关闭），token 加密保存在本机，下次启动自动恢复并验证，无需每次重新填写。
 - **加密存储，而非明文**：token 必须先恢复才能使用，单向哈希无法满足自动登录，因此采用可逆加密：
   - Android：AES-GCM 密钥生成在 **Android Keystore** 内，密钥不可导出；磁盘上只有密文。
   - 网页 / Windows：WebCrypto **AES-256-GCM**，密钥由安装标识与设备特征经 PBKDF2（21 万次）派生，localStorage 中只有密文与随机 IV。
@@ -48,13 +58,13 @@
 - **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
 - 版本号：**1.1.1**（Android versionCode 3）。
 
-## 下载（v1.1.5）
+## 下载（v1.1.6）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.5-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.5/Wikifactory-Editor-v1.1.5-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.5-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.5/Wikifactory-Editor-v1.1.5-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.5-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.5/Wikifactory-Editor-v1.1.5-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.6-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.6/Wikifactory-Editor-v1.1.6-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.6-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.6/Wikifactory-Editor-v1.1.6-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.6-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.6/Wikifactory-Editor-v1.1.6-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -67,9 +77,9 @@
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-765af4e09a4fd36d5bd19a03115453ab61cad6d8e9d2fd13ae50df695e544411  Wikifactory-Editor-v1.1.5-android.apk
-0649f8505ddc3931ce9790934ee793b6cec7db699ac2c4b755c5fed82505b1de  Wikifactory-Editor-v1.1.5-windows-x64.exe
-4c6f3b900153a9ee7cb4d37cd345f5220a1d927b4a81b2316148950c2ef342d7  Wikifactory-Editor-v1.1.5-web.zip
+2523cee81bc90107bea477fe2417924da43e0683e88799cc56bdc969cd6b4fa6  Wikifactory-Editor-v1.1.6-android.apk
+b1ddbc8abb05ba91c848b183070ddbcc0fc359de7f64c684875574e3f4d301c0  Wikifactory-Editor-v1.1.6-windows-x64.exe
+c81fb914e18c77671dbd0feffef5787af305cc7579219edb54f7cf33b2959f2e  Wikifactory-Editor-v1.1.6-web.zip
 ```
 
 ## 功能
@@ -104,15 +114,15 @@
 
 ### 按需预览（非实时）
 
-预览按钮或 `Ctrl+Enter` 生成快照；支持桌面 / 手机宽度、页内目录、亮暗主题、横幅、表格颜色、Wiki 图片、图标与站内链接。本次会话上传的图片可直接预览；仓库已有图片显示为占位块（不会发起额外网络请求）。
+预览按钮或 `Ctrl+Enter` 生成快照；支持桌面 / 手机宽度、页内目录、亮暗主题、横幅、表格颜色、Wiki 图片、图标与站内链接。本次会话上传的图片可直接预览；仓库已有图片显示文件名与 alt 占位，点击后才按需加载（不预取）。
 
 ### GitHub PR（纯客户端）
 
-- token 默认**加密保存在本机**（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复并验证；在设置中关闭「记住 token」则仅保留在内存。所有请求直接发往 `https://api.github.com`。
+- token **默认只保留在内存**；勾选「记住 token」后加密保存在本机（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复并验证。所有请求直接发往 `https://api.github.com`。
 - 目标仓库**硬编码**为 `hellokug2699/Wikifactory-Content`；设置中没有仓库输入框，网络层也会拒绝其他仓库名。
 - 有写权限时直接从最新 base 创建临时分支并提交；没有写权限时自动 Fork → 同步 Fork → 向 Content 仓库发起 PR。
 - 一次 PR 可同时提交正文与多张图片；支持 Draft PR、自定义分支名 / 提交信息 / PR 标题与说明。
-- **分支名由用户保留**：编辑器不会自动追加后缀；若分支名被其他人占用，会弹出错误窗口，要求你更换分支名后重试。
+- **分支名由用户保留**：编辑器不会自动追加后缀；若分支名被占用，冲突窗口会给出「内容页-日期-短哈希」建议名并支持一键更换。
 - **提交前本地门禁**：进入 PR 前会刷新 `Wikifactory-Content` 的文件树，执行路径层级、frontmatter 类型、`[icon=]` 图标存在性、重复 URL / 大小写冲突检查；有错误时阻断提交，并给出具体文件与行号。
 - **Content 仓库不要求分支 up-to-date**：编辑器不检查也不阻塞；每次从最新 base 创建分支。
 - 成功后显示 PR 链接，可复制链接。
@@ -126,7 +136,7 @@
 ### 移动端
 
 - 侧栏抽屉、底部操作面板、可横向滚动的格式栏。
-- CodeMirror 编辑区字号 ≥ 16px、行高 1.8；移动端隐藏行号栏以节省宽度。
+- CodeMirror 编辑区字号 ≥ 16px、行高 1.8；行号栏可设为自动 / 显示 / 隐藏，移动端默认隐藏，底部始终显示「行 当前/总行数」。
 - 触控目标优化；宽表在预览中横向滚动；已在 320 / 360 / 390 宽度实测无页面级横向溢出。
 
 ## 截图
@@ -176,7 +186,7 @@
 | `Wikifactory-Content`（公开） | `public_repo`（提交 PR）/ 匿名读取也可 | 目标仓库的 Contents: Read and write、Pull requests: Read and write |
 
 > 没有写权限时会自动走 Fork；Fork 由 GitHub 账户完成，公开仓库通常只需要 `public_repo`。
-> token 默认加密保存在本机（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复；关闭「记住 token」后仅保留在内存。输入框不提供「显示」按钮，并阻止复制 / 剪切 / 拖拽，但**允许粘贴**。应用没有后端，不会把 token 发往 GitHub 以外的地址。
+> token 默认只保留在内存；勾选「记住 token」后加密保存在本机（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复。输入框不提供「显示」按钮，并阻止复制 / 剪切 / 拖拽，但**允许粘贴**。应用没有后端，不会把 token 发往 GitHub 以外的地址。
 
 ## 快捷键
 
@@ -250,7 +260,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.5-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.6-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 ```
@@ -261,7 +271,7 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 
 ## 已知限制
 
-- 预览是按需快照，不是实时渲染；仓库中已有的图片在本地预览里显示为占位块（本次会话上传的图片可预览）。
+- 预览是按需快照，不是实时渲染；仓库中已有的图片显示文件名 / alt，点击后才按需加载（本次会话上传的图片可直接预览）。
 - Android 产物为 debug 签名；没有接入 Play Store / 自动更新。
 - Windows exe 依赖 WebView2 Runtime（Windows 10/11 通常自带）。
 - 编辑器仅访问 Content 仓库；如果未来需要恢复 Core/Alias，应作为独立应用或明确的新版本决策，而不是在当前版本中放开。

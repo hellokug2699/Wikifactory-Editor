@@ -3,7 +3,7 @@
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
 /** Kept in sync with package.json by scripts/selftest.mjs. */
-export const APP_VERSION = '1.1.5';
+export const APP_VERSION = '1.1.6';
 
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';
@@ -21,10 +21,12 @@ export function defaultState() {
       branch: '',
       fontSize: 14.5,
       wrap: true,
-      rememberToken: true,
+      rememberToken: false,
       updateCheck: true,
       exitBehavior: 'ask',
       hideStatusBar: false,
+      prAck: false,
+      gutter: 'auto',
       templates: {
         tableCell: '',
         imageStyle: 'wiki',
@@ -71,10 +73,12 @@ function migrate(parsed) {
     delete merged.settings.owner;
     // Legacy plaintext tokens are always dropped; the encrypted store replaces them.
     delete merged.settings.token;
-    if (typeof merged.settings.rememberToken !== 'boolean') merged.settings.rememberToken = true;
+    if (typeof merged.settings.rememberToken !== 'boolean') merged.settings.rememberToken = false;
     if (typeof merged.settings.updateCheck !== 'boolean') merged.settings.updateCheck = true;
     if (!['ask', 'save', 'discard'].includes(merged.settings.exitBehavior)) merged.settings.exitBehavior = 'ask';
     if (typeof merged.settings.hideStatusBar !== 'boolean') merged.settings.hideStatusBar = false;
+    if (typeof merged.settings.prAck !== 'boolean') merged.settings.prAck = false;
+    if (!['auto', 'on', 'off'].includes(merged.settings.gutter)) merged.settings.gutter = 'auto';
   }
   merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';

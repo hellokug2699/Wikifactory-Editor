@@ -174,7 +174,8 @@ function updateSaveStatus() {
 
 function updateCaret() {
   const { line, column } = activeEditor().lineColumn;
-  els.statLn.textContent = `行 ${line}，列 ${column}`;
+  const total = activeEditor().lineCount;
+  els.statLn.textContent = `行 ${line}/${total}，列 ${column}`;
 }
 
 function updateStats() {
@@ -749,6 +750,95 @@ function openRepoBrowser() {
 
 /* -------------------------------------------------------------- preview */
 
+function repoRawUrl(path) {
+  const ref = state.content.ref || state.settings.branch || 'main';
+  const encodedPath = String(path).split('/').map(encodeURIComponent).join('/');
+  return `https://raw.githubusercontent.com/${CONTENT_OWNER}/${CONTENT_REPO}/${encodeURIComponent(ref)}/${encodedPath}`;
+}
+
+/** Candidate repository paths for a click-to-load preview image. */
+function previewImageCandidates(el, pagePath) {
+  const wikiName = el.dataset.wikiFile;
+  if (wikiName) {
+    const game = gameOfPath(pagePath);
+    if (!game) return [];
+    const dir = `games/${game}/${GAME_IMAGE_DIR}`;
+    const hasExt = /\.[a-z0-9]+$/i.test(wikiName);
+    const names = hasExt
+      ? [wikiName]
+      : ['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'svg'].map((ext) => `${wikiName}.${ext}`);
+    return names.map((name) => {
+      const path = `${dir}/${name}`;
+      return { path, url: repoRawUrl(path) };
+    });
+  }
+  const src = el.dataset.markdownSrc;
+  if (!src) return [];
+  const dir = pagePath.includes('/') ? pagePath.slice(0, pagePath.lastIndexOf('/') + 1) : '';
+  try {
+    const base = `https://github.com/${CONTENT_OWNER}/${CONTENT_REPO}/blob/HEAD/${dir}`;
+    const resolved = new URL(src, base);
+    const marker = '/blob/HEAD/';
+    const index = resolved.pathname.indexOf(marker);
+    if (index === -1) return [];
+    const path = decodeURIComponent(resolved.pathname.slice(index + marker.length));
+    return [{ path, url: repoRawUrl(path) }];
+  } catch {
+    return [];
+  }
+}
+
+function loadPreviewImage(el, pagePath) {
+  if (el.dataset.loading === '1') return;
+  el.dataset.loading = '1';
+  el.classList.add('is-loading');
+  const hint = el.querySelector('.wf-image-placeholder__hint');
+  if (hint) hint.textContent = '加载中…';
+
+  const fail = () => {
+    el.dataset.loading = '';
+    el.classList.remove('is-loading');
+    el.classList.add('is-error');
+    if (hint) hint.textContent = '无法加载，请检查文件名';
+    toast(`无法加载图片：${el.dataset.wikiFile || el.dataset.markdownSrc || ''}`, 'error');
+  };
+
+  const candidates = previewImageCandidates(el, pagePath);
+  let index = 0;
+  const attempt = () => {
+    if (index >= candidates.length) {
+      fail();
+      return;
+    }
+    const candidate = candidates[index];
+    index += 1;
+    const img = new Image();
+    img.onload = () => {
+      img.className = 'wf-lazy-image';
+      img.alt = el.dataset.wikiAlt || '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.dataset.wikiPath = candidate.path;
+      el.replaceWith(img);
+    };
+    img.onerror = attempt;
+    img.src = candidate.url;
+  };
+  attempt();
+}
+
+function attachLazyPreviewImages(article, pagePath = state.content.path) {
+  for (const el of article.querySelectorAll('.wf-image-placeholder')) {
+    if (!el.dataset.wikiFile && !el.dataset.markdownSrc) continue;
+    el.addEventListener('click', () => loadPreviewImage(el, pagePath));
+    el.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      loadPreviewImage(el, pagePath);
+    });
+  }
+}
+
 function openPreview() {
   const map = assetsForPreview();
   let result;
@@ -764,6 +854,7 @@ function openPreview() {
     toast(`预览渲染失败：${error.message}`, 'error');
     return;
   }
+  attachLazyPreviewImages(els.previewArticle);
   els.previewTitle.textContent = result.title || '页面预览';
   els.previewToc.hidden = !(result.toc && result.toc.count >= 2);
   els.previewTocNav.innerHTML = result.toc?.html || '';
@@ -771,7 +862,7 @@ function openPreview() {
   els.previewOverlay.hidden = false;
   document.body.style.overflow = 'hidden';
   setTimeout(() => $('#btn-preview-close')?.focus(), 30);
-  if (!map.size) els.previewTitle.title = '本地快照预览：仓库中已有的图片会显示为占位块';
+  els.previewTitle.title = '按需预览：仓库图片会显示文件名 / alt，点击占位块后加载';
 }
 
 function closePreview() {
@@ -1468,7 +1559,7 @@ function openSettings() {
   body.innerHTML = `
     <div class="form-grid">
       <div class="form-note is-accent">
-        <strong>仅客户端，且仅限 Content。</strong> 勾选「记住 token」后，token 会<strong>加密</strong>保存在本机：
+        <strong>仅客户端，且仅限 Content。</strong> token 默认<strong>不保存</strong>；勾选「记住 token」后会<strong>加密</strong>保存在本机：
         Android 使用系统 Keystore（密钥不可导出），网页版与桌面版使用 AES-256-GCM 设备绑定密钥。
         关闭该选项则 token 只留在内存，重启后失效。
         输入框禁止复制 / 剪切，但<strong>允许粘贴</strong>。
@@ -1521,6 +1612,15 @@ function openSettings() {
         </label>
         <label class="check-row" style="align-self:end"><input type="checkbox" id="set-wrap" ${state.settings.wrap ? 'checked' : ''}><span>自动换行</span></label>
       </div>
+      <label class="field">
+        <span class="form-label">行号栏</span>
+        <select class="input" id="set-gutter">
+          <option value="auto" ${state.settings.gutter === 'auto' ? 'selected' : ''}>自动（移动端隐藏，显示当前行 / 总行数）</option>
+          <option value="on" ${state.settings.gutter === 'on' ? 'selected' : ''}>始终显示</option>
+          <option value="off" ${state.settings.gutter === 'off' ? 'selected' : ''}>始终隐藏</option>
+        </select>
+        <p class="form-help">无论是否显示行号栏，底部状态栏都会显示「行 当前/总行数」。</p>
+      </label>
 
       <label class="check-row">
         <input type="checkbox" id="set-update-check" ${state.settings.updateCheck === false ? '' : 'checked'}>
@@ -1596,11 +1696,13 @@ function openSettings() {
     resultEl.className = 'connection-result';
     resultEl.textContent = '正在验证 token…';
     try {
-      const user = await new GitHubClient(token).getUser();
-      const scopes = user.scopes || '（细粒度 token：权限由仓库设置决定）';
-      resultEl.className = 'connection-result is-ok';
-      resultEl.innerHTML = `已连接：<strong>@${escapeHtml(user.login)}</strong><br>权限范围：<code>${escapeHtml(scopes)}</code>`;
-      setConnection(true, `@${user.login}`, `已连接 @${user.login}`);
+      const probe = await probeToken(token);
+      const scopes = probe.classic ? probe.scopes : '无（细粒度 token：权限由仓库设置决定）';
+      resultEl.className = `connection-result ${probe.level === 'read-only' ? 'is-error' : 'is-ok'}`;
+      resultEl.innerHTML = `已连接：<strong>@${escapeHtml(probe.user.login)}</strong><br>
+        权限范围：<code>${escapeHtml(scopes)}</code><br>
+        ${tokenCapabilityHtml(probe)}`;
+      setConnection(true, `@${probe.user.login}`, `已连接 @${probe.user.login}`);
     } catch (error) {
       resultEl.className = 'connection-result is-error';
       resultEl.textContent = error.message;
@@ -1632,6 +1734,7 @@ function openSettings() {
         state.settings.branch = body.querySelector('#set-branch').value.trim();
         state.settings.fontSize = Number(body.querySelector('#set-fontsize').value) || 14.5;
         state.settings.wrap = body.querySelector('#set-wrap').checked;
+        state.settings.gutter = body.querySelector('#set-gutter').value;
         state.settings.updateCheck = body.querySelector('#set-update-check').checked;
         state.settings.exitBehavior = body.querySelector('#set-exit-behavior').value;
         const statusBarInput = body.querySelector('#set-hide-statusbar');
@@ -1677,6 +1780,8 @@ function openSettings() {
 function applyEditorPrefs() {
   const size = Number(state.settings.fontSize) || 14.5;
   document.documentElement.style.setProperty('--editor-font-size', `${size}px`);
+  const gutter = ['auto', 'on', 'off'].includes(state.settings.gutter) ? state.settings.gutter : 'auto';
+  document.documentElement.dataset.gutter = gutter;
   bodyEditor.setWrap(state.settings.wrap);
   fmEditor.setWrap(state.settings.wrap);
 }
@@ -1690,6 +1795,109 @@ function applyStatusBarPreference() {
   } catch (error) {
     console.warn('[android] 状态栏设置失败', error);
   }
+}
+
+/* --------------------------------------------------------- token permissions */
+
+/** Inspect a token: classic scopes plus repository push permissions. */
+async function probeToken(token) {
+  const client = new GitHubClient(token);
+  const user = await client.getUser();
+  const scopes = String(user.scopes || '').trim();
+  let upstream = null;
+  let fork = null;
+  try { upstream = await client.getRepo(CONTENT_OWNER, CONTENT_REPO); } catch { /* no access */ }
+  try { fork = await client.getRepo(user.login, CONTENT_REPO); } catch { /* no fork */ }
+  const directPush = upstream?.permissions?.push === true;
+  const forkPush = fork?.permissions?.push === true;
+  const classic = scopes.length > 0;
+  const classicWrite = /\b(repo|public_repo)\b/.test(scopes);
+  let level = 'unknown';
+  if (classic) level = classicWrite ? 'write' : 'read-only';
+  else if (directPush || forkPush) level = 'write';
+  else if (fork && !forkPush) level = 'read-only';
+  return { user, scopes, directPush, forkPush, hasFork: Boolean(fork), classic, level };
+}
+
+function tokenCapabilityHtml(probe) {
+  if (probe.level === 'read-only') {
+    return '<strong>只读：</strong>该 token 无法创建分支或 PR。经典 token 请勾选 <code>public_repo</code>；细粒度 token 需要对 Fork 的 Content 仓库拥有 Contents / Pull requests 读写权限。';
+  }
+  if (probe.level === 'write') {
+    return probe.directPush
+      ? '<strong>写权限：</strong>可以直接在 Content 仓库创建分支（维护者）。'
+      : '<strong>写权限：</strong>可以写入 Fork 并向上游发起 PR。';
+  }
+  return '<strong>写权限：无法确认。</strong>细粒度 token 需要对 Fork 的 Content 仓库拥有 Contents / Pull requests 读写权限；提交时若返回 403 会给出提示。';
+}
+
+/** First-PR scope confirmation; resolves true only when the user confirms. */
+async function confirmPrPermissions() {
+  let settle;
+  const answer = new Promise((resolve) => { settle = resolve; });
+  let probe = null;
+  let accepted = false;
+  const body = document.createElement('div');
+  body.innerHTML = '<div class="form-note">正在检查 token 权限…</div>';
+
+  async function renderProbe() {
+    try {
+      probe = await probeToken(sessionToken);
+      const scopes = probe.classic ? probe.scopes : '无（细粒度 token）';
+      body.innerHTML = `
+        <div class="form-grid">
+          <div class="pr-summary">
+            <div class="pr-summary-row"><span>账号</span><span>@${escapeHtml(probe.user.login)}</span></div>
+            <div class="pr-summary-row"><span>权限头</span><span><code>${escapeHtml(scopes)}</code></span></div>
+            <div class="pr-summary-row"><span>上游写权限</span><span>${probe.directPush ? '有（维护者）' : '无（走 Fork）'}</span></div>
+            <div class="pr-summary-row"><span>Fork</span><span>${probe.hasFork ? (probe.forkPush ? '存在，可写' : '存在，只读') : '尚未创建'}</span></div>
+          </div>
+          <div class="form-note ${probe.level === 'read-only' ? 'is-error' : probe.level === 'write' ? 'is-accent' : ''}">
+            ${tokenCapabilityHtml(probe)}
+          </div>
+          <div class="form-note">
+            提交只会创建分支与 PR，不会直接写入 Content 的 <code>main</code>。
+            此确认只在首次提交时出现；token 默认不保存，关闭应用即失效。
+          </div>
+        </div>`;
+    } catch (error) {
+      probe = { level: 'unknown' };
+      body.innerHTML = `<div class="form-grid">
+        <div class="form-note is-error">无法检查 token 权限：${escapeHtml(error.message)}<br>可以继续，但提交可能因权限不足失败。</div>
+      </div>`;
+    }
+    const button = modal.el.querySelector('#pr-ack-continue');
+    if (button) {
+      button.disabled = false;
+      button.textContent = probe.level === 'read-only' ? '重新检查' : '确认并继续';
+    }
+  }
+
+  const modal = openModal({
+    title: '首次提交前确认 token 权限',
+    subtitle: '避免提交到一半因 403 失败',
+    body,
+    size: 'normal',
+    footer: [
+      { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '确认并继续', className: 'btn-primary', id: 'pr-ack-continue', disabled: true, onClick: async () => {
+        if (!probe) return;
+        if (probe.level === 'read-only') {
+          await renderProbe();
+          if (probe.level === 'read-only') toast('该 token 仍为只读，请补充写权限后重试。', 'error', 4200);
+          return;
+        }
+        state.settings.prAck = true;
+        saveState(state);
+        accepted = true;
+        modal.close();
+        settle(true);
+      } },
+    ],
+    onClose: () => { if (!accepted) settle(false); },
+  });
+  await renderProbe();
+  return answer;
 }
 
 /* -------------------------------------------------------- updates / guide */
@@ -2049,6 +2257,10 @@ async function openPrDialog({ prefill = null } = {}) {
     openSettings();
     return;
   }
+  if (!state.settings.prAck) {
+    const allowed = await confirmPrPermissions();
+    if (!allowed) return;
+  }
   const path = currentPathValue().replace(/^\/+/, '');
   if (!path) {
     toast('请先填写仓库路径。', 'error');
@@ -2225,17 +2437,39 @@ async function openPrDialog({ prefill = null } = {}) {
   });
 }
 
+/** Content page stem + date + short random hash, e.g. mam-20261023-a1b2c3. */
+function uniqueBranchSuggestion(avoid = '') {
+  const stem = slugify(stripExt(basename(state.content.path)) || 'page');
+  const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const hash = Math.random().toString(16).slice(2, 8);
+    const name = `${stem}-${date}-${hash}`;
+    if (name !== avoid) return name;
+  }
+  return `${stem}-${date}-${Date.now().toString(16).slice(-6)}`;
+}
+
 function openBranchConflictDialog({ branchName, snapshot, message }) {
+  let suggestion = uniqueBranchSuggestion(branchName);
   const body = document.createElement('div');
   body.innerHTML = `
     <div class="form-note is-warn">
       <strong>分支名已被占用。</strong><br>
       ${escapeHtml(message || `分支名「${branchName}」已存在。`)}<br>
-      其他贡献者可能已经使用该分支名。编辑器不会自动改名，请设置一个新的分支名。
+      其他贡献者可能已经使用该分支名。编辑器不会自动改名，请使用下方建议或自行修改。
     </div>
-    ${formField('新的分支名', `<input class="input mono" id="conflict-branch" value="${escapeHtml(branchName)}" autocomplete="off">`, '必须与已占用的分支名不同；提交信息与 PR 内容会保留。')}
+    ${formField('新的分支名', `<input class="input mono" id="conflict-branch" value="${escapeHtml(suggestion)}" autocomplete="off">`, '建议格式：内容页-日期-短哈希，冲突概率极低。提交信息与 PR 内容会保留。')}
+    <div class="button-row">
+      <button class="btn btn-small" type="button" id="conflict-suggest">换一个建议</button>
+    </div>
   `;
   const input = body.querySelector('#conflict-branch');
+  body.querySelector('#conflict-suggest').addEventListener('click', () => {
+    suggestion = uniqueBranchSuggestion(input.value.trim() || branchName);
+    input.value = suggestion;
+    input.focus();
+    input.select();
+  });
   const modal = openModal({
     title: '分支名已被占用',
     subtitle: 'GitHub 422 · Reference already exists',
@@ -2243,7 +2477,7 @@ function openBranchConflictDialog({ branchName, snapshot, message }) {
     size: 'normal',
     footer: [
       { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
-      { label: '返回修改并重试', className: 'btn-primary', onClick: () => {
+      { label: '使用该名称并重试', className: 'btn-primary', onClick: () => {
         const next = input.value.trim();
         if (!next) { toast('请填写新的分支名。', 'error'); input.focus(); return; }
         if (next === branchName) { toast('请使用不同的分支名。', 'error'); input.focus(); input.select(); return; }

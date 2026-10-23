@@ -240,6 +240,10 @@ export class CodeEditor {
     return { line: line.number, column: head - line.from + 1 };
   }
 
+  get lineCount() {
+    return this.view.state.doc.lines;
+  }
+
   focus() {
     this.view.focus();
     this.view.requestMeasure();

@@ -703,6 +703,7 @@ kbd {
 .editor-host > .cm-editor { height: 100%; }
 .editor-host .cm-scroller { scrollbar-width: thin; }
 .editor-host .cm-gutters { min-width: 44px; }
+html[data-gutter='off'] .editor-host .cm-gutters { display: none; }
 .editor-host .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 4px; }
 
 .editor-foot {
@@ -1019,6 +1020,40 @@ html[data-theme='dark'] .wiki-preview { background: #0f1728; }
   font-size: 11px;
   text-align: center;
 }
+.wf-image-placeholder[data-wiki-file],
+.wf-image-placeholder[data-markdown-src] {
+  cursor: pointer;
+}
+.wf-image-placeholder[data-wiki-file]:hover,
+.wf-image-placeholder[data-markdown-src]:hover {
+  border-color: var(--accent);
+  color: var(--text-soft);
+}
+.wf-image-placeholder__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 100%;
+}
+.wf-image-placeholder__name { color: var(--text-soft); word-break: break-all; }
+.wf-image-placeholder__alt {
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.wf-image-placeholder__hint {
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  color: var(--accent);
+}
+.wf-image-placeholder.is-loading { opacity: .75; }
+.wf-image-placeholder.is-loading .wf-image-placeholder__hint { color: var(--text-faint); }
+.wf-image-placeholder.is-error { border-color: var(--danger); }
+.wf-image-placeholder.is-error .wf-image-placeholder__hint { color: var(--danger); }
+.wf-lazy-image { max-width: 100%; height: auto; }
+.wf-figure--inline .wf-image-placeholder__text { flex-direction: row; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .wf-image-placeholder svg { width: 26px; height: 26px; opacity: .65; }
 .wf-figure--sm .wf-image-placeholder { width: 240px; }
 .wf-figure--md .wf-image-placeholder { width: 340px; }
@@ -1129,6 +1164,7 @@ html[data-theme='dark'] .wiki-preview { background: #0f1728; }
 }
 .form-note.is-accent { border-color: color-mix(in srgb, var(--accent) 24%, var(--border)); background: var(--accent-soft); color: var(--text-soft); }
 .form-note.is-warn { border-color: color-mix(in srgb, var(--warning) 30%, var(--border)); background: var(--warning-soft); }
+.form-note.is-error { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); background: var(--danger-soft); color: var(--text); }
 .form-note code { font-size: 10.5px; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--surface) 60%, transparent); }
 
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1424,6 +1460,7 @@ button.issue-item:hover { border-color: var(--border-strong); background: var(--
   .doc-path { font-size: 10px; }
   .doc-status { display: none; }
   .editor-host .cm-gutters { display: none; }
+  html[data-gutter='on'] .editor-host .cm-gutters { display: flex; }
   .editor-host .cm-scroller { font-size: max(16px, var(--editor-font-size, 16px)); }
   .editor-host .cm-content { padding: 16px 16px 90px; }
   .editor-foot { padding: 5px 10px; font-size: 9.5px; }

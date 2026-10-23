@@ -123,7 +123,17 @@ const wikiImageExtension = {
     if (asset) {
       media = `<img src="${escapeHtml(asset)}" alt="${escapeHtml(token.alt)}" loading="lazy" decoding="async">`;
     } else {
-      media = `<span class="wf-image-placeholder">${photoIcon()}<span>${escapeHtml(token.name)}</span></span>`;
+      const alt = token.alt || token.caption || '';
+      media = `<span class="wf-image-placeholder" role="button" tabindex="0"
+        data-wiki-file="${escapeHtml(token.name)}"
+        data-wiki-alt="${escapeHtml(alt)}"
+        aria-label="加载仓库图片 ${escapeHtml(token.name)}">${photoIcon()}
+        <span class="wf-image-placeholder__text">
+          <span class="wf-image-placeholder__name">${escapeHtml(token.name)}</span>
+          ${alt ? `<span class="wf-image-placeholder__alt">${escapeHtml(alt)}</span>` : ''}
+        </span>
+        <span class="wf-image-placeholder__hint">点击加载仓库图片</span>
+      </span>`;
     }
     return `<span class="${classes.join(' ')}">${media}${caption}</span>`;
   },
@@ -206,12 +216,35 @@ marked.use({
 function prepareArticle(article, html) {
   const clean = DOMPurify.sanitize(html, {
     ADD_TAGS: ['figure', 'figcaption'],
-    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind'],
+    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind', 'role', 'tabindex', 'aria-label'],
     FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
     FORBID_ATTR: ['onerror', 'onload', 'onclick'],
     ALLOW_DATA_ATTR: true,
   });
   article.innerHTML = clean;
+
+  // Relative Markdown images cannot be fetched in the preview (CSP), so show
+  // filename + alt as a click-to-load placeholder instead of a broken image.
+  for (const img of [...article.querySelectorAll('img')]) {
+    const src = img.getAttribute('src') || '';
+    if (!src || /^(data:|https?:|blob:)/i.test(src)) continue;
+    const name = src.split('/').filter(Boolean).pop() || src;
+    const alt = img.getAttribute('alt') || '';
+    const placeholder = document.createElement('span');
+    placeholder.className = 'wf-image-placeholder';
+    placeholder.setAttribute('role', 'button');
+    placeholder.setAttribute('tabindex', '0');
+    placeholder.dataset.markdownSrc = src;
+    placeholder.dataset.wikiAlt = alt;
+    placeholder.setAttribute('aria-label', `加载仓库图片 ${name}`);
+    placeholder.innerHTML = `${photoIcon()}
+      <span class="wf-image-placeholder__text">
+        <span class="wf-image-placeholder__name">${escapeHtml(name)}</span>
+        ${alt ? `<span class="wf-image-placeholder__alt">${escapeHtml(alt)}</span>` : ''}
+      </span>
+      <span class="wf-image-placeholder__hint">点击加载仓库图片</span>`;
+    img.replaceWith(placeholder);
+  }
 
   // Table cell colours: remove the marker and apply the validated colour.
   for (const cell of article.querySelectorAll('td, th')) {
