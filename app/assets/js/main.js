@@ -2,15 +2,15 @@
 
 import {
   APP_VERSION, CONTENT_OWNER, CONTENT_REPO, EDITOR_OWNER, EDITOR_REPO,
-  basename, downloadText, escapeHtml, formatBytes, formatTime,
+  basename, defaultState, downloadText, escapeHtml, formatBytes, formatTime,
   loadState, saveState, slugify, stripExt,
 } from './state.js';
 import { CodeEditor, CURSOR } from './code-editor.js';
 import {
   CALLOUTS, COLOR_TOKENS, GAME_ICON_DIR, GAME_IMAGE_DIR, ICON_EXTENSIONS, ICON_SIZES,
   ICON_NAME_RE, countCharacters, extractIconRefs, frontmatterData, gameOfPath, joinDocument,
-  repositoryIconNames, setYamlField, splitFrontmatter, summarizeIssues, validateDocument,
-  validateWithRepo,
+  repositoryIconNames, setYamlField, splitFrontmatter, summarizeIssues, validateContentPath,
+  validateDocument, validateWithRepo,
 } from './validate.js';
 import { GitHubClient, GitHubError } from './github.js';
 import { clearToken, loadToken, saveToken, tokenStorageKind } from './secure-token.js';
@@ -637,6 +637,90 @@ async function loadCurrentFile() {
     button.disabled = false;
     button.textContent = oldLabel;
   }
+}
+
+/* ------------------------------------------------------------- new game */
+
+function newGamePathFrom(body) {
+  const game = body.querySelector('#new-game').value.trim();
+  const category = body.querySelector('#new-category').value.trim();
+  const rawPage = body.querySelector('#new-page').value.trim();
+  if (!game || !category || !rawPage) return '';
+  const file = /\.mdx?$/i.test(rawPage) ? rawPage : `${rawPage}.md`;
+  return `games/${game}/${category}/${file}`;
+}
+
+function openNewGameDialog() {
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="form-grid">
+      <div class="form-note is-accent">
+        新建游戏只需填写目录与首个页面。<strong>Git 不能保存空文件夹</strong>，
+        提交 PR 时会随页面文件自动创建 <code>games/&lt;游戏&gt;/&lt;分类&gt;/</code>。
+        创建后会清空当前编辑器内容与待上传图片。
+      </div>
+      ${formField('游戏目录名', '<input class="input mono" id="new-game" placeholder="Satisfactory" autocomplete="off">', '游戏目录名会成为 URL 顶层；不得包含非法字符，也不得与 search / pagefind / _astro / 404 / about 冲突。')}
+      <div class="form-grid-2">
+        ${formField('分类目录', '<input class="input mono" id="new-category" value="Guides" autocomplete="off">')}
+        ${formField('首个页面文件名', '<input class="input mono" id="new-page" value="New-Page.md" autocomplete="off">', '未写扩展名时自动补 .md；扩展名必须是小写 .md / .mdx。')}
+      </div>
+      ${formField('页面标题（可选）', '<input class="input" id="new-title" placeholder="例如：游戏总览">', '填写后会写入 frontmatter 的 title 字段。')}
+      <div class="form-note" id="new-game-preview"></div>
+    </div>
+  `;
+  const preview = body.querySelector('#new-game-preview');
+  const refresh = () => {
+    const path = newGamePathFrom(body);
+    preview.innerHTML = `将创建：<code>${escapeHtml(path || 'games/<游戏>/<分类>/<页面>.md')}</code>`;
+  };
+  for (const input of body.querySelectorAll('input')) input.addEventListener('input', refresh);
+  refresh();
+
+  const modal = openModal({
+    title: '新建游戏 / 文件夹',
+    subtitle: '路径与首个页面会在提交 PR 时创建',
+    body,
+    size: 'normal',
+    footer: [
+      { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '创建页面', className: 'btn-primary', onClick: () => {
+        const path = newGamePathFrom(body);
+        if (!path) { toast('请填写游戏目录、分类与页面文件名。', 'error'); return; }
+        const errors = validateContentPath(path).filter((item) => item.severity === 'error');
+        if (errors.length) {
+          toast(errors[0].message, 'error', 4200);
+          return;
+        }
+        const title = body.querySelector('#new-title').value.trim();
+        state.content.path = path;
+        state.content.fmRaw = title ? setYamlField('', 'title', title) : '';
+        state.content.body = '';
+        state.content.loadedSha = null;
+        state.content.loadedPath = '';
+        state.content.ref = '';
+        state.content.editorTab = 'body';
+        state.content.lastSaved = 0;
+        assets.splice(0, assets.length);
+        els.contentPath.value = path;
+        bodyEditor.setValue('', { reset: true });
+        fmEditor.setValue(state.content.fmRaw, { reset: true });
+        renderAssets();
+        renderFmForm();
+        populateFmForm();
+        syncEditorVisibility();
+        dirty = false;
+        lastIssues = [];
+        issuesStale = true;
+        saveState(state);
+        captureSessionBaseline();
+        updateDocMeta();
+        updateStats();
+        updateSaveStatus();
+        modal.close();
+        toast(`已新建 ${path}；提交 PR 时会创建对应文件夹。`, 'success', 4200);
+      } },
+    ],
+  });
 }
 
 function saveDraft(manual = false) {
@@ -1713,6 +1797,15 @@ function openSettings() {
   body.querySelector('#set-check-update').addEventListener('click', () => {
     checkForUpdates({ manual: true });
   });
+  // Persist immediately so the next exit follows the new value even if the
+  // settings dialog is dismissed without pressing 保存设置.
+  body.querySelector('#set-exit-behavior').addEventListener('change', (event) => {
+    const value = event.currentTarget.value;
+    state.settings.exitBehavior = value;
+    saveState(state);
+    const label = value === 'save' ? '总是保存后退出' : value === 'discard' ? '不保存直接退出' : '每次询问';
+    toast(`退出行为已设为「${label}」，立即生效。`, 'success', 2200);
+  });
   body.querySelector('#set-contributing').addEventListener('click', () => {
     modal.close();
     openContributing();
@@ -1922,6 +2015,8 @@ function compareVersions(a, b) {
 async function checkForUpdates({ manual = false } = {}) {
   if (updateCheckRunning) return;
   if (!manual && state.settings.updateCheck === false) return;
+  // Do not replace the startup restore prompt or any dialog the user opened.
+  if (!manual && document.body.classList.contains('modal-open')) return;
   updateCheckRunning = true;
   try {
     const release = await new GitHubClient('').getLatestRelease(EDITOR_OWNER, EDITOR_REPO);
@@ -2561,6 +2656,7 @@ function bindEvents() {
 
   $('#btn-content-load').addEventListener('click', loadCurrentFile);
   $('#btn-content-browse').addEventListener('click', openRepoBrowser);
+  $('#btn-content-new-game').addEventListener('click', openNewGameDialog);
 
   $('#btn-save').addEventListener('click', () => saveDraft(true));
   $('#btn-export').addEventListener('click', exportCurrentFile);
@@ -2704,6 +2800,82 @@ async function restoreSavedToken() {
   }
 }
 
+/** Reset the editor to a clean default page (used by the restore prompt). */
+function startBlankPage() {
+  const defaults = defaultState().content;
+  state.content.path = defaults.path;
+  state.content.fmRaw = '';
+  state.content.body = '';
+  state.content.loadedSha = null;
+  state.content.loadedPath = '';
+  state.content.ref = '';
+  state.content.editorTab = 'body';
+  state.content.lastSaved = 0;
+  assets.splice(0, assets.length);
+  els.contentPath.value = state.content.path;
+  bodyEditor.setValue('', { reset: true });
+  fmEditor.setValue('', { reset: true });
+  renderAssets();
+  renderFmForm();
+  populateFmForm();
+  syncEditorVisibility();
+  dirty = false;
+  lastIssues = [];
+  issuesStale = true;
+  saveState(state);
+  captureSessionBaseline();
+  updateDocMeta();
+  updateStats();
+  updateSaveStatus();
+  toast('已新建空白页。', 'success', 2400);
+}
+
+/** Ask whether to restore the previous session instead of silently reopening it. */
+function maybePromptRestoreDraft() {
+  const hasDraft = Boolean(state.content.body.trim() || state.content.fmRaw.trim());
+  if (!hasDraft) return Promise.resolve(false);
+  const title = frontmatterData(state.content.fmRaw).title
+    || stripExt(basename(state.content.path))
+    || '未命名页面';
+  const savedAt = state.content.lastSaved
+    ? new Date(state.content.lastSaved).toLocaleString('zh-CN')
+    : '未知';
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="form-grid">
+      <div class="form-note is-accent">
+        检测到上次退出时打开的页面。编辑器<strong>不会自动恢复</strong>，请选择如何开始本次编辑。
+      </div>
+      <div class="pr-summary">
+        <div class="pr-summary-row"><span>页面</span><span>${escapeHtml(state.content.path || '（未设置路径）')}</span></div>
+        <div class="pr-summary-row"><span>标题</span><span>${escapeHtml(title)}</span></div>
+        <div class="pr-summary-row"><span>草稿时间</span><span>${escapeHtml(savedAt)}</span></div>
+        <div class="pr-summary-row"><span>正文</span><span>${countCharacters(state.content.body).characters.toLocaleString('zh-CN')} 字符</span></div>
+      </div>
+      <div class="form-note">
+        「新建空白页」会清空当前草稿并回到默认新建路径（无法撤销）；
+        选择「恢复草稿」则继续上次的内容。
+      </div>
+    </div>
+  `;
+  return new Promise((resolve) => {
+    const modal = openModal({
+      title: '恢复上次编辑的页面？',
+      subtitle: '启动时由你决定，不再自动指向旧页面',
+      body,
+      size: 'normal',
+      footer: [
+        { label: '新建空白页', className: 'btn-ghost', onClick: () => {
+          startBlankPage();
+          modal.close();
+        } },
+        { label: '恢复草稿', className: 'btn-primary', onClick: () => modal.close() },
+      ],
+      onClose: () => resolve(true),
+    });
+  });
+}
+
 function restoreInitialUi() {
   els.contentPath.value = state.content.path;
   renderFmForm();
@@ -2729,13 +2901,15 @@ function restoreInitialUi() {
   }
 
   if (state.content.body.trim() || state.content.fmRaw.trim()) {
-    toast('已恢复上次编辑的本地草稿。', 'info', 2400);
+    toast('检测到上次编辑的草稿，请选择恢复或新建空白页。', 'info', 2600);
   }
 
   captureSessionBaseline();
-  if (state.settings.updateCheck !== false) {
-    setTimeout(() => checkForUpdates(), 1500);
-  }
+  maybePromptRestoreDraft().finally(() => {
+    if (state.settings.updateCheck !== false) {
+      setTimeout(() => checkForUpdates(), 900);
+    }
+  });
 }
 
 bindEvents();
