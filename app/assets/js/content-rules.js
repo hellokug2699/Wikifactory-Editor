@@ -13,10 +13,39 @@
  * The sync script also writes a checksum used by the content CI.
  */
 
-export const RULES_VERSION = '1.0.0';
+export const RULES_VERSION = '1.1.0';
 
 /** Top-level site paths that game directories must not shadow. */
 export const RESERVED_PATHS = ['search', 'pagefind', '_astro', '404', 'about'];
+
+/**
+ * Canonical page categories (frontmatter `tags`).
+ *
+ * Distributed by the editor template; Content pages only store the value.
+ * Adding a category requires an issue in the editor repository, after which
+ * this list is updated and synced to Content / Core. `tone` is a design token
+ * name used by Core and the editor preview (`accent | success | warning |
+ * danger | neutral`).
+ */
+export const PAGE_TAGS = [
+  { value: '攻略', label: '攻略', tone: 'accent', description: '玩法、流程与技巧' },
+  { value: '建筑', label: '建筑', tone: 'warning', description: '建筑、设施与布局' },
+  { value: '物品', label: '物品', tone: 'success', description: '物品、材料与道具' },
+  { value: '制造', label: '制造', tone: 'success', description: '配方、生产线与自动化' },
+  { value: '研究', label: '研究', tone: 'accent', description: '科技树、解锁与实验' },
+  { value: '资源', label: '资源', tone: 'success', description: '矿产、采集与分布' },
+  { value: '机制', label: '机制', tone: 'neutral', description: '系统规则与数值' },
+  { value: '探索', label: '探索', tone: 'accent', description: '地图、区域与收集' },
+  { value: '剧情', label: '剧情', tone: 'danger', description: '世界观、任务与背景' },
+  { value: '更新', label: '更新', tone: 'warning', description: '版本变更与公告' },
+];
+
+export const PAGE_TAG_VALUES = PAGE_TAGS.map((tag) => tag.value);
+const PAGE_TAG_SET = new Set(PAGE_TAG_VALUES);
+
+/** Where contributors request a new page category. */
+export const PAGE_TAG_ISSUE_URL =
+  'https://github.com/hellokug2699/Wikifactory-Editor/issues/new?template=new-page-tag.yml';
 
 export const PAGE_EXTENSIONS = ['.md', '.mdx'];
 export const PAGE_EXT_RE = /\.(md|mdx)$/i;
@@ -106,6 +135,29 @@ export function frontmatterTypeProblems(data) {
   }
   if ('updated' in data && data.updated !== null && !isValidGateDate(data.updated)) {
     problems.push(`"updated" 必须是合法日期（YYYY-MM-DD 或 ISO 时间，当前为 ${JSON.stringify(data.updated)}）`);
+  }
+  return problems;
+}
+
+/**
+ * Validate frontmatter `tags` against the canonical page-category template.
+ * Type errors are reported separately by frontmatterTypeProblems.
+ *
+ * @param {unknown} tags
+ * @returns {string[]} problems
+ */
+export function tagProblems(tags) {
+  if (!Array.isArray(tags)) return [];
+  const problems = [];
+  const seen = new Set();
+  for (const tag of tags) {
+    if (typeof tag !== 'string') continue;
+    if (!PAGE_TAG_SET.has(tag)) {
+      problems.push(`未知页面分类 “${tag}”；新增分类请在 Wikifactory-Editor 提交 issue（${PAGE_TAG_ISSUE_URL}）`);
+      continue;
+    }
+    if (seen.has(tag)) problems.push(`页面分类重复：“${tag}”`);
+    seen.add(tag);
   }
   return problems;
 }

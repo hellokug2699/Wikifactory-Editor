@@ -2,12 +2,13 @@
 
 import {
   GATE_DATE_RE, ICON_DIR, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_DIR, IMAGE_EXTENSIONS,
-  RESERVED_PATHS, frontmatterTypeProblems, iconPathFor, isValidGateDate, nameProblem,
+  PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS, RESERVED_PATHS,
+  frontmatterTypeProblems, iconPathFor, isValidGateDate, nameProblem, tagProblems,
 } from './content-rules.js';
 
 export {
-  GATE_DATE_RE, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_EXTENSIONS,
-  isValidGateDate, RESERVED_PATHS,
+  GATE_DATE_RE, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_EXTENSIONS, PAGE_TAG_ISSUE_URL,
+  PAGE_TAG_VALUES, PAGE_TAGS, isValidGateDate, RESERVED_PATHS, tagProblems,
 };
 
 export const GAME_IMAGE_DIR = IMAGE_DIR;
@@ -285,6 +286,7 @@ export function validateFrontmatter(raw) {
   if (raw.trim()) {
     // Shared with scripts/validate-content.mjs via content-rules.js.
     for (const problem of frontmatterTypeProblems(map)) issues.push(issue('error', problem));
+    for (const problem of tagProblems(map.tags)) issues.push(issue('error', problem));
     if (!map.title) issues.push(issue('warn', '未填写 title，页面将使用文件名作为标题'));
   }
   return issues;

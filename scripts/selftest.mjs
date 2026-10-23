@@ -7,7 +7,8 @@ import {
 } from '../app/assets/js/validate.js';
 import { APP_VERSION } from '../app/assets/js/state.js';
 import {
-  RESERVED_PATHS, nameProblem, rulesMatchConfig, frontmatterTypeProblems,
+  PAGE_TAGS, PAGE_TAG_VALUES, RESERVED_PATHS, nameProblem, rulesMatchConfig,
+  frontmatterTypeProblems, tagProblems,
 } from '../app/assets/js/content-rules.js';
 
 let passed = 0;
@@ -167,6 +168,24 @@ test('shared rules detect config drift', () => {
   assert.deepEqual(rulesMatchConfig({ reserved, thumbnails }), []);
   assert.ok(rulesMatchConfig({ reserved: reserved.slice(0, 2), thumbnails }).length > 0);
   assert.ok(rulesMatchConfig({ reserved, thumbnails: { icon: { dir: 'assets/images', extensions: [] } } }).length > 0);
+});
+
+test('page categories come from the shared template', () => {
+  assert.ok(PAGE_TAGS.length >= 3);
+  assert.deepEqual(new Set(PAGE_TAG_VALUES).size, PAGE_TAG_VALUES.length);
+  for (const tag of PAGE_TAGS) {
+    assert.ok(tag.value && tag.label && tag.description);
+    assert.ok(['accent', 'success', 'warning', 'danger', 'neutral'].includes(tag.tone));
+  }
+  assert.equal(tagProblems(['攻略', '建筑']).length, 0);
+  assert.ok(tagProblems(['攻略', '自造分类']).some((message) => message.includes('未知页面分类')));
+  assert.ok(tagProblems(['攻略', '攻略']).some((message) => message.includes('重复')));
+  assert.deepEqual(tagProblems('攻略'), []);
+});
+
+test('validateFrontmatter rejects unknown page categories', () => {
+  const issues = validateFrontmatter('title: T\ntags: [攻略, 自造分类]');
+  assert.ok(issues.some((item) => item.message.includes('未知页面分类')));
 });
 
 console.log(`\n${passed} tests passed.`);

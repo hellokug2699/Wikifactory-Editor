@@ -1,0 +1,56 @@
+name: 新增页面分类
+description: 申请在编辑器模板中新增一个页面分类（tag）；通过后会同步到 Content 与 Core
+title: "新增页面分类："
+body:
+  - type: markdown
+    attributes:
+      value: |
+        页面分类（frontmatter `tags`）由编辑器模板统一分发，Content 仓库只保存页面文件。
+        新增分类需要先在此提交 issue；维护者更新模板后，所有编辑器与站点会同步生效。
+        请勿在页面里直接写入模板之外的分类，内容门禁会拒绝。
+  - type: input
+    id: tag-name
+    attributes:
+      label: 分类名称
+      description: 将写入 frontmatter tags 的值，建议 2–4 个汉字，不要包含逗号。
+      placeholder: 例如：载具
+    validations:
+      required: true
+  - type: textarea
+    id: tag-description
+    attributes:
+      label: 分类说明
+      description: 这个分类涵盖哪些页面？用于编辑器 chip 的悬停提示。
+      placeholder: 例如：载具、飞行器与移动方式
+    validations:
+      required: true
+  - type: dropdown
+    id: tone
+    attributes:
+      label: 展示色调
+      description: 站点标签的默认配色。
+      options:
+        - accent（蓝色）
+        - success（绿色）
+        - warning（橙色）
+        - danger（红色）
+        - neutral（灰色）
+    validations:
+      required: true
+  - type: input
+    id: examples
+    attributes:
+      label: 示例页面
+      description: 现有或计划中的页面路径，便于评估分类边界。
+      placeholder: games/Satisfactory/Vehicles/Truck.md
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已搜索现有分类，确认没有可复用的分类。
+          required: true
+        - label: 我理解新增分类需要维护者更新模板并同步 Core / Content。
+          required: true

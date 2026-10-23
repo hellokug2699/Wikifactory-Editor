@@ -8,7 +8,8 @@ import {
 import { CodeEditor, CURSOR } from './code-editor.js';
 import {
   CALLOUTS, COLOR_TOKENS, GAME_ICON_DIR, GAME_IMAGE_DIR, ICON_EXTENSIONS, ICON_SIZES,
-  ICON_NAME_RE, countCharacters, extractIconRefs, frontmatterData, gameOfPath, joinDocument,
+  ICON_NAME_RE, PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS,
+  countCharacters, extractIconRefs, frontmatterData, gameOfPath, joinDocument,
   repositoryIconNames, setYamlField, splitFrontmatter, summarizeIssues, validateContentPath,
   validateDocument, validateWithRepo,
 } from './validate.js';
@@ -244,6 +245,11 @@ function scheduleFormSync() {
 /* ------------------------------------------------------------- frontmatter */
 
 function renderFmForm() {
+  const tagChips = PAGE_TAGS.map((tag) => `
+    <button type="button" class="chip" data-tag="${escapeHtml(tag.value)}"
+      title="${escapeHtml(tag.description)}" aria-pressed="false">${escapeHtml(tag.label)}</button>
+  `).join('');
+  const issueUrl = `${PAGE_TAG_ISSUE_URL}&title=${encodeURIComponent('新增页面分类：')}`;
   els.fmForm.innerHTML = `
     <label class="field">
       <span class="field-label">标题 title</span>
@@ -253,25 +259,29 @@ function renderFmForm() {
       <span class="field-label">摘要 description</span>
       <textarea class="input" data-fm="description" id="fm-description" rows="2" placeholder="用于列表卡片与 SEO"></textarea>
     </label>
+    <div class="field">
+      <span class="field-label">页面分类 tags</span>
+      <div class="chip-row tag-picker" id="fm-tags" role="group" aria-label="页面分类">${tagChips}</div>
+      <p class="form-help">分类由编辑器模板统一分发；未在模板中的分类会被内容门禁拒绝。需要新增分类请
+        <a href="${issueUrl}" target="_blank" rel="noopener">在编辑器仓库提交 issue</a>。</p>
+    </div>
     <div class="fm-grid-2">
-      <label class="field">
-        <span class="field-label">标签 tags</span>
-        <input class="input" data-fm="tags" id="fm-tags" placeholder="攻略, 建筑" autocomplete="off">
-      </label>
       <label class="field">
         <span class="field-label">排序 order</span>
         <input class="input" data-fm="order" id="fm-order" type="number" placeholder="10">
       </label>
+      <label class="field">
+        <span class="field-label">更新日期 updated</span>
+        <input class="input" data-fm="updated" id="fm-updated" type="date">
+      </label>
     </div>
-    <label class="field">
-      <span class="field-label">更新日期 updated</span>
-      <input class="input" data-fm="updated" id="fm-updated" type="date">
-    </label>
     <label class="check-row"><input type="checkbox" data-fm="draft" id="fm-draft"><span>草稿（draft：仅开发环境可见）</span></label>
     <label class="check-row"><input type="checkbox" data-fm="toc" id="fm-toc" checked><span>显示页内目录（toc）</span></label>
     <p class="form-help">修改表单会同步到 frontmatter，未知字段与注释保持不变。需要完整控制时打开「元数据 YAML」标签（带 YAML 语法高亮）。</p>
   `;
-  els.fmForm.addEventListener('input', onFmFieldInput);
+  // Assign (not addEventListener) so repeated renders do not stack handlers.
+  els.fmForm.oninput = onFmFieldInput;
+  els.fmForm.onclick = onFmTagClick;
 }
 
 function populateFmForm() {
@@ -282,7 +292,7 @@ function populateFmForm() {
   };
   set('#fm-title', data.title);
   set('#fm-description', data.description);
-  set('#fm-tags', data.tags.join(', '));
+  renderTagSelection(data.tags);
   set('#fm-order', data.order ?? '');
   set('#fm-updated', data.updated || '');
   const draft = els.fmForm.querySelector('#fm-draft');
@@ -291,14 +301,51 @@ function populateFmForm() {
   if (toc && document.activeElement !== toc) toc.checked = data.toc;
 }
 
+/** Reflect selected tags on the template chips; unknown tags become removable warning chips. */
+function renderTagSelection(tags) {
+  const picker = els.fmForm.querySelector('#fm-tags');
+  if (!picker) return;
+  const selected = new Set(tags);
+  for (const button of picker.querySelectorAll('[data-tag]')) {
+    const on = selected.has(button.dataset.tag);
+    button.classList.toggle('is-active', on);
+    button.setAttribute('aria-pressed', String(on));
+  }
+  for (const chip of picker.querySelectorAll('[data-unknown-tag]')) chip.remove();
+  const known = new Set(PAGE_TAG_VALUES);
+  for (const tag of tags) {
+    if (known.has(tag)) continue;
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip is-active is-unknown';
+    chip.dataset.unknownTag = tag;
+    chip.title = '模板中不存在该分类；点击移除，或到编辑器仓库申请新增';
+    chip.textContent = `${tag} ×`;
+    picker.append(chip);
+  }
+}
+
+function onFmTagClick(event) {
+  const chip = event.target.closest('[data-tag], [data-unknown-tag]');
+  if (!chip || !els.fmForm.contains(chip)) return;
+  const tag = chip.dataset.tag ?? chip.dataset.unknownTag;
+  const current = frontmatterData(state.content.fmRaw).tags;
+  const next = current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag];
+  state.content.fmRaw = setYamlField(state.content.fmRaw, 'tags', next);
+  if (fmEditor.value !== state.content.fmRaw) {
+    fmEditor.setValue(state.content.fmRaw, { reset: false });
+  }
+  populateFmForm();
+  updateDocMeta();
+  markDirty();
+}
+
 function onFmFieldInput(event) {
   if (updatingForm) return;
   const field = event.target.dataset.fm;
   if (!field) return;
   let value;
-  if (field === 'tags') {
-    value = event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
-  } else if (field === 'order') {
+  if (field === 'order') {
     value = event.target.value === '' ? '' : Number(event.target.value);
   } else if (field === 'draft' || field === 'toc') {
     const checked = event.target.checked;

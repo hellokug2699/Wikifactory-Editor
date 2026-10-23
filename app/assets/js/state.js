@@ -3,7 +3,7 @@
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
 /** Kept in sync with package.json by scripts/selftest.mjs. */
-export const APP_VERSION = '1.1.8';
+export const APP_VERSION = '1.1.9';
 
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';

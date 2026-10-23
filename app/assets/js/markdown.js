@@ -4,7 +4,7 @@ import { marked } from '../vendor/marked.esm.js';
 import DOMPurify from '../vendor/purify.es.mjs';
 import {
   CALLOUTS, CALLOUT_ALIASES, COLOR_ALIASES, COLOR_TOKENS, CSS_COLOR_RE,
-  IMAGE_ALIGNS, IMAGE_SIZES, ICON_SIZES, frontmatterData,
+  IMAGE_ALIGNS, IMAGE_SIZES, ICON_SIZES, PAGE_TAGS, frontmatterData,
 } from './validate.js';
 import { escapeHtml, basename, stripExt } from './state.js';
 
@@ -315,9 +315,13 @@ function buildToc(article) {
   return { html: items, count: headings.length };
 }
 
+const TAG_TONES = new Map(PAGE_TAGS.map((tag) => [tag.value, tag.tone]));
+
 function renderMeta(data, path) {
   const title = data.title || stripExt(basename(path)) || '未命名页面';
-  const tags = (data.tags || []).map((tag) => `<span class="preview-tag">${escapeHtml(tag)}</span>`).join('');
+  const tags = (data.tags || [])
+    .map((tag) => `<span class="preview-tag" data-tone="${TAG_TONES.get(tag) || 'accent'}">${escapeHtml(tag)}</span>`)
+    .join('');
   return `
     <div class="preview-meta">
       <h1 class="preview-title-main">${escapeHtml(title)}</h1>
