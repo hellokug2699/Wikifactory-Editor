@@ -84,6 +84,17 @@ jobs:
           PY
           test -s "$RUNNER_TEMP/release.jks"
 
+      - name: Validate release keystore
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+              -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" > /dev/null; then
+            echo "::error::无法读取 release keystore。请确认 ANDROID_KEYSTORE_BASE64 是用 base64 -w0 release.jks 生成的完整单行文本（复制时不要漏掉末尾字符），并确认密码与别名匹配。"
+            exit 1
+          fi
+
       - name: Build and sign release APK
         env:
           ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
