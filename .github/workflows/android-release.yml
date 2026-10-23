@@ -64,7 +64,11 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          B64="$(printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d ' \t\r\n')"
+          B64="${B64//-/+}"
+          B64="${B64//_//}"
+          while [ $(( ${#B64} % 4 )) -ne 0 ]; do B64="${B64}="; done
+          printf '%s' "$B64" | base64 --decode > "$RUNNER_TEMP/release.jks"
           test -s "$RUNNER_TEMP/release.jks"
 
       - name: Build and sign release APK
