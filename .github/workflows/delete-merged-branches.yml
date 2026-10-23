@@ -1,0 +1,48 @@
+name: Delete merged branches
+
+# Deletes the head branch after a PR is merged into this repository.
+# Fork PR branches live in the contributor's fork and cannot be deleted by
+# the upstream GITHUB_TOKEN; contributors can enable "Automatically delete
+# head branches" in their fork settings.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  delete-head-branch:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != github.event.pull_request.base.ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged head branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            const protectedNames = new Set(['main', 'master', 'develop']);
+            if (protectedNames.has(branch)) {
+              core.info(`Skip protected branch: ${branch}`);
+              return;
+            }
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${branch}`,
+              });
+              core.info(`Deleted merged branch: ${branch}`);
+            } catch (error) {
+              if (error.status === 404 || error.status === 422) {
+                core.warning(`Branch already gone or protected: ${branch} (${error.status})`);
+                return;
+              }
+              throw error;
+            }

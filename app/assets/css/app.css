@@ -1223,18 +1223,48 @@ html[data-theme='dark'] .wiki-preview { background: #0f1728; }
 }
 
 /* token / settings */
-.token-row { position: relative; }
-.token-row .input { padding-right: 42px; }
-.token-visibility {
-  position: absolute;
-  right: 4px; top: 50%;
-  transform: translateY(-50%);
-  width: 32px; height: 30px;
-  border: 0; border-radius: 6px;
-  background: transparent; color: var(--text-faint);
-  display: inline-flex; align-items: center; justify-content: center;
+.token-secret {
+  user-select: none;
+  -webkit-user-select: none;
+  letter-spacing: .03em;
 }
-.token-visibility:hover { background: var(--surface-3); color: var(--text); }
+.token-guide {
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text-soft);
+}
+.token-guide summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.token-guide ol {
+  margin: 9px 0 9px 18px;
+  padding: 0;
+}
+.token-guide li { margin: 3px 0; }
+.token-guide a { color: var(--accent); }
+.token-guide code {
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.token-fork-note {
+  margin: 9px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--warning);
+  border-radius: 0 7px 7px 0;
+  background: var(--warning-soft);
+  color: var(--text-soft);
+  line-height: 1.6;
+}
 .connection-result {
   margin-top: 10px;
   padding: 9px 11px;

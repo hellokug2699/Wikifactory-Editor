@@ -18,6 +18,7 @@ export class GitHubError extends Error {
     this.name = 'GitHubError';
     this.status = status;
     this.data = data;
+    this.code = data?.code || '';
   }
 }
 
@@ -309,24 +310,24 @@ export class GitHubClient {
     onProgress(`基线提交：${baseSha.slice(0, 8)}`, 'ok');
 
     // Try to create the branch directly on the upstream repository.
+    // Never auto-rename a conflicting branch: the UI asks the user to choose.
     let directBranch = false;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        await this.createRef(owner, repo, branch, baseSha);
-        directBranch = true;
-        onProgress(`已在 ${owner}/${repo} 创建分支 ${branch}`, 'ok');
-        break;
-      } catch (error) {
-        if (!(error instanceof GitHubError)) throw error;
-        if (error.status === 422 && /exists/i.test(error.message) && attempt === 0) {
-          branch = `${branch}-${Date.now().toString(36).slice(-4)}`;
-          onProgress(`分支已存在，改用 ${branch}`, 'step');
-          continue;
-        }
-        if ([403, 404].includes(error.status)) {
-          onProgress('没有上游仓库写权限，切换到 Fork 流程…', 'step');
-          break;
-        }
+    try {
+      await this.createRef(owner, repo, branch, baseSha);
+      directBranch = true;
+      onProgress(`已在 ${owner}/${repo} 创建分支 ${branch}`, 'ok');
+    } catch (error) {
+      if (!(error instanceof GitHubError)) throw error;
+      if (error.status === 422 && /exists/i.test(error.message)) {
+        throw new GitHubError(
+          `分支名「${branch}」已存在，可能由其他贡献者创建。请更换分支名后重试。`,
+          422,
+          { code: 'BRANCH_EXISTS', branch, owner },
+        );
+      }
+      if ([403, 404].includes(error.status)) {
+        onProgress('没有上游仓库写权限，切换到 Fork 流程…', 'step');
+      } else {
         throw error;
       }
     }
@@ -343,19 +344,19 @@ export class GitHubClient {
       baseCommit = await this.getCommit(headOwner, repo, baseSha);
       onProgress(`Fork 已同步到 ${baseSha.slice(0, 8)}`, 'ok');
 
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          await this.createRef(headOwner, repo, branch, baseSha);
-          onProgress(`已在 Fork 创建分支 ${branch}`, 'ok');
-          break;
-        } catch (error) {
-          if (!(error instanceof GitHubError)) throw error;
-          if (error.status === 422 && /exists/i.test(error.message) && attempt === 0) {
-            branch = `${branch}-${Date.now().toString(36).slice(-4)}`;
-            continue;
-          }
-          throw error;
+      try {
+        await this.createRef(headOwner, repo, branch, baseSha);
+        onProgress(`已在 Fork 创建分支 ${branch}`, 'ok');
+      } catch (error) {
+        if (!(error instanceof GitHubError)) throw error;
+        if (error.status === 422 && /exists/i.test(error.message)) {
+          throw new GitHubError(
+            `分支名「${branch}」已存在于你的 Fork（${headOwner}/${repo}）。请更换分支名后重试。`,
+            422,
+            { code: 'BRANCH_EXISTS', branch, owner: headOwner },
+          );
         }
+        throw error;
       }
     }
 

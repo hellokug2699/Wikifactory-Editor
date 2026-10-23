@@ -58,6 +58,7 @@ const els = {
 
 const state = loadState();
 const assets = [];
+let sessionToken = '';
 let dirty = false;
 let updatingForm = false;
 let lastIssues = [];
@@ -130,7 +131,7 @@ function openExternal(url) {
 function setConnection(ok, label, message, scopes = '') {
   connection = { ok, login: label, scopes, message };
   els.connectionPill.classList.toggle('is-online', ok);
-  els.connectionPill.classList.toggle('is-error', !ok && !!state.settings.token);
+  els.connectionPill.classList.toggle('is-error', !ok && !!sessionToken);
   els.connectionLabel.textContent = label;
   els.connectionPill.title = message;
 }
@@ -522,7 +523,7 @@ function showIssuesDialog(issues) {
     size: 'wide',
     footer: [
       { label: '关闭', className: 'btn-ghost', onClick: () => modal.close() },
-      ...(state.settings.token && summary.errors === 0
+      ...(sessionToken && summary.errors === 0
         ? [{ label: '继续提交 PR', className: 'btn-primary', onClick: () => { modal.close(); openPrDialog(); } }]
         : []),
     ],
@@ -549,7 +550,7 @@ function jumpToIssue(issue) {
 async function loadCurrentFile() {
   const path = currentPathValue().replace(/^\/+/, '');
   if (!path) { toast('请先填写仓库路径。', 'error'); return; }
-  const client = new GitHubClient(state.settings.token);
+  const client = new GitHubClient(sessionToken);
   const button = $('#btn-content-load');
   const oldLabel = button.textContent;
   button.disabled = true;
@@ -641,7 +642,7 @@ function openRepoBrowser() {
     pathInput.value = current;
     listEl.innerHTML = '<p class="empty-mini" style="padding:14px 4px">加载中…</p>';
     try {
-      const client = new GitHubClient(state.settings.token);
+      const client = new GitHubClient(sessionToken);
       list = await client.listDir(CONTENT_OWNER, CONTENT_REPO, current, state.settings.branch || '');
       const rows = [];
       if (current) {
@@ -1276,21 +1277,43 @@ function openSettings() {
   body.innerHTML = `
     <div class="form-grid">
       <div class="form-note is-accent">
-        <strong>仅客户端，且仅限 Content。</strong> token 只保存在本机 localStorage，所有请求直接从本应用发往 <code>api.github.com</code>。编辑器被硬编码为只能访问 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code>，不会读写 Core / Alias。
+        <strong>仅客户端，且仅限 Content。</strong> token 只保存在当前运行内存中，不写入 localStorage、文件或任何持久存储；关闭应用即失效。输入框禁止复制。
+        编辑器被硬编码为只能访问 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code>，不会读写 Core / Alias。
       </div>
+
+      <details class="token-guide" open>
+        <summary>获取 GitHub token 的完整步骤（贡献者必读）</summary>
+        <ol>
+          <li>打开 <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener">GitHub → Settings → Developer settings → Personal access tokens (classic)</a>。</li>
+          <li>Note 填 <code>Wikifactory Editor</code>，Expiration 选择合适期限。</li>
+          <li>勾选 <code>public_repo</code>（公开仓库读写）。这是推荐、最省事的方式。</li>
+          <li>点击 Generate token，复制一次后粘贴到下方输入框。</li>
+          <li>保存设置并点击「测试连接」，确认显示你的 <code>@用户名</code>。</li>
+        </ol>
+        <p class="token-fork-note">
+          <strong>为什么基本必定要 Fork：</strong>Wikifactory-Content 虽然是公开仓库，但公开 ≠ 可以直接推送。绝大多数贡献者没有该仓库的写权限，因此编辑器会自动把分支创建到你的 Fork，再向 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code> 发起 PR。只有拥有上游写权限的维护者才会直接建分支。
+        </p>
+        <p>
+          如果你使用 Fine-grained token（<a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">创建入口</a>），需要对你 Fork 的 Content 仓库拥有 Contents / Pull requests 读写权限；若无法创建 Fork，请改用经典 token 的 <code>public_repo</code>。
+        </p>
+        <p>请勿把 token 粘贴到聊天、Issue、PR 描述或任何公开位置。</p>
+      </details>
+
       <label class="field">
-        <span class="form-label">GitHub Token</span>
-        <div class="token-row">
-          <input class="input mono" id="set-token" type="password" placeholder="ghp_… / github_pat_…" autocomplete="off">
-          <button class="token-visibility" type="button" id="set-token-eye" aria-label="显示 / 隐藏 token">${icon('eye')}</button>
-        </div>
-        <p class="form-help">Content 仓库读取可匿名；提交 PR 需要 token。经典 token 至少需要 <code>public_repo</code>；细粒度 token 需要目标 Content 仓库的 Contents / Pull requests 读写权限。</p>
+        <span class="form-label">GitHub Token（仅本次运行）</span>
+        <input class="input mono token-secret" id="set-token" type="password"
+               placeholder="ghp_… / github_pat_…" autocomplete="new-password"
+               spellcheck="false" data-lpignore="true" data-1p-ignore="true">
+        <p class="form-help">经典 token 至少需要 <code>public_repo</code>；细粒度 token 需要 Fork 后 Content 仓库的 Contents / Pull requests 读写权限。</p>
       </label>
+      <div class="button-row">
+        <button class="btn btn-small btn-danger" type="button" id="set-token-clear">清除当前 token</button>
+      </div>
+
       <div class="pr-summary">
         <div class="pr-summary-row"><span>目标仓库（固定）</span><span>${CONTENT_OWNER}/${CONTENT_REPO}</span></div>
       </div>
       <label class="field"><span class="form-label">目标分支（留空 = 默认分支）</span><input class="input mono" id="set-branch" value="${escapeHtml(state.settings.branch)}" placeholder="main"></label>
-      <label class="check-row"><input type="checkbox" id="set-remember" ${state.settings.rememberToken ? 'checked' : ''}><span>在本地记住 token（关闭后仅本次运行有效）</span></label>
       <div class="form-grid-2">
         <label class="field"><span class="form-label">编辑器字号</span>
           <select class="input" id="set-fontsize">
@@ -1303,15 +1326,27 @@ function openSettings() {
       <div class="connection-result" id="set-result" hidden></div>
     </div>
   `;
+
   const tokenInput = body.querySelector('#set-token');
-  tokenInput.value = state.settings.token;
-  const eye = body.querySelector('#set-token-eye');
-  eye.addEventListener('click', () => {
-    const visible = tokenInput.type === 'text';
-    tokenInput.type = visible ? 'password' : 'text';
-    eye.innerHTML = icon(visible ? 'eye' : 'lock');
-  });
+  tokenInput.value = sessionToken;
+  const blockTokenCopy = (event) => {
+    event.preventDefault();
+    toast('出于安全考虑，token 输入框禁止复制。', 'info', 1800);
+  };
+  for (const type of ['copy', 'cut', 'contextmenu', 'dragstart']) {
+    tokenInput.addEventListener(type, blockTokenCopy);
+  }
+
   const resultEl = body.querySelector('#set-result');
+  body.querySelector('#set-token-clear').addEventListener('click', () => {
+    sessionToken = '';
+    tokenInput.value = '';
+    tokenInput.type = 'password';
+    setConnection(false, '未连接', '已清除 token');
+    resultEl.hidden = true;
+    toast('已清除内存中的 token。', 'success');
+  });
+
   body.querySelector('#set-test').addEventListener('click', async () => {
     const token = tokenInput.value.trim();
     if (!token) { toast('请先填写 token。', 'error'); return; }
@@ -1333,31 +1368,35 @@ function openSettings() {
 
   const modal = openModal({
     title: '设置与 GitHub 连接',
-    subtitle: 'token 仅在本机使用；提交时直接创建 Content 仓库 PR',
+    subtitle: 'token 仅保存在内存；提交时直接创建 Content 仓库 PR',
     body,
     size: 'wide',
     footer: [
       { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
       { label: '保存设置', className: 'btn-primary', onClick: () => {
-        state.settings.token = tokenInput.value.trim();
+        sessionToken = tokenInput.value.trim();
         state.settings.branch = body.querySelector('#set-branch').value.trim();
-        state.settings.rememberToken = body.querySelector('#set-remember').checked;
         state.settings.fontSize = Number(body.querySelector('#set-fontsize').value) || 14.5;
         state.settings.wrap = body.querySelector('#set-wrap').checked;
         applyEditorPrefs();
         saveState(state);
-        if (!state.settings.token) setConnection(false, '未连接', '未设置 token');
+        if (!sessionToken) setConnection(false, '未连接', '未设置 token');
         else if (!connection.ok) {
-          setConnection(false, 'Token 已设置', '已保存 token，正在验证…');
-          new GitHubClient(state.settings.token).getUser()
+          setConnection(false, 'Token 已设置', '已保存在内存，正在验证…');
+          new GitHubClient(sessionToken).getUser()
             .then((user) => setConnection(true, `@${user.login}`, `已连接 @${user.login}`))
             .catch((error) => setConnection(false, '连接失败', error.message));
         }
         modal.close();
-        toast('设置已保存。', 'success');
+        toast('设置已保存；token 不会写入本地存储。', 'success');
       } },
     ],
   });
+  // Keep the security guide at the top instead of auto-scrolling to the token field.
+  setTimeout(() => {
+    body.querySelector('.token-guide summary')?.focus();
+    modal.body.scrollTop = 0;
+  }, 60);
 }
 
 function applyEditorPrefs() {
@@ -1436,8 +1475,8 @@ toc: true
 
 /* ------------------------------------------------------------------- PR */
 
-async function openPrDialog() {
-  if (!state.settings.token) {
+async function openPrDialog({ prefill = null } = {}) {
+  if (!sessionToken) {
     toast('提交 PR 需要 GitHub token，请先在设置中填写。', 'error');
     openSettings();
     return;
@@ -1466,11 +1505,11 @@ async function openPrDialog() {
   }
 
   const targetAssets = assets.map((asset) => asset.path);
-  const branchDefault = `wfe/${slugify(stripExt(basename(path)))}-${new Date().toISOString().slice(5, 16).replace(/[-:T]/g, '')}`;
+  const branchDefault = prefill?.branchName || `wfe/${slugify(stripExt(basename(path)))}-${new Date().toISOString().slice(5, 16).replace(/[-:T]/g, '')}`;
   const data = frontmatterData(state.content.fmRaw);
-  const titleDefault = `content: ${data.title || stripExt(basename(path))}`;
-  const commitDefault = `content: 更新 ${path}`;
-  const prBodyDefault = [
+  const titleDefault = prefill?.prTitle || `content: ${data.title || stripExt(basename(path))}`;
+  const commitDefault = prefill?.commitMessage || `content: 更新 ${path}`;
+  const prBodyDefault = prefill?.prBody || [
     '由 Wikifactory Editor 提交。',
     '',
     '变更文件：',
@@ -1494,11 +1533,14 @@ async function openPrDialog() {
         Content 仓库不设置必须 up-to-date：提交分支会从最新 main 创建，无需手动同步。
         所有请求仅在客户端发往 GitHub API。
       </div>
-      ${formField('分支名', `<input class="input mono" id="pr-branch" value="${escapeHtml(branchDefault)}" autocomplete="off">`, '分支创建在 Content 仓库或你的 Fork 上。')}
+      <div class="form-note">
+        分支名完全由你决定，编辑器不会自动改名。若分支名已被其他贡献者占用，会弹出错误窗口要求你更换。
+      </div>
+      ${formField('分支设置 · 分支名', `<input class="input mono" id="pr-branch" value="${escapeHtml(branchDefault)}" autocomplete="off">`, '分支创建在 Content 仓库或你的 Fork 上；编辑器不会自动追加后缀。')}
       ${formField('提交信息', `<input class="input" id="pr-commit" value="${escapeHtml(commitDefault)}" autocomplete="off">`)}
       ${formField('PR 标题', `<input class="input" id="pr-title" value="${escapeHtml(titleDefault)}" autocomplete="off">`)}
       ${formField('PR 说明', `<textarea class="input" id="pr-body" rows="6">${escapeHtml(prBodyDefault)}</textarea>`)}
-      <label class="check-row"><input type="checkbox" id="pr-draft"><span>创建为 Draft PR</span></label>
+      <label class="check-row"><input type="checkbox" id="pr-draft" ${prefill?.draft ? 'checked' : ''}><span>创建为 Draft PR</span></label>
       <div class="progress-log" id="pr-log" hidden></div>
     </div>
   `;
@@ -1543,7 +1585,7 @@ async function openPrDialog() {
           }
           const files = [{ path, text: doc }];
           for (const asset of assets) files.push({ path: asset.path, base64: asset.base64 });
-          const client = new GitHubClient(state.settings.token);
+          const client = new GitHubClient(sessionToken);
           const result = await client.submitPullRequest({
             owner: CONTENT_OWNER,
             repo: CONTENT_REPO,
@@ -1590,6 +1632,14 @@ async function openPrDialog() {
           renderAssets();
           toast('PR 已创建。', 'success');
         } catch (error) {
+          const branchConflict = error instanceof GitHubError
+            && (error.code === 'BRANCH_EXISTS' || (error.status === 422 && /已存在|exists/i.test(error.message)));
+          if (branchConflict) {
+            const snapshot = { branchName, commitMessage, prTitle, prBody, draft };
+            modal.close();
+            openBranchConflictDialog({ branchName, snapshot, message: error.message });
+            return;
+          }
           log(`失败：${error.message}`, 'err');
           modal.setBusy(false);
           toast(error.message || '提交失败。', 'error');
@@ -1600,6 +1650,39 @@ async function openPrDialog() {
       } },
     ],
   });
+}
+
+function openBranchConflictDialog({ branchName, snapshot, message }) {
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="form-note is-warn">
+      <strong>分支名已被占用。</strong><br>
+      ${escapeHtml(message || `分支名「${branchName}」已存在。`)}<br>
+      其他贡献者可能已经使用该分支名。编辑器不会自动改名，请设置一个新的分支名。
+    </div>
+    ${formField('新的分支名', `<input class="input mono" id="conflict-branch" value="${escapeHtml(branchName)}" autocomplete="off">`, '必须与已占用的分支名不同；提交信息与 PR 内容会保留。')}
+  `;
+  const input = body.querySelector('#conflict-branch');
+  const modal = openModal({
+    title: '分支名已被占用',
+    subtitle: 'GitHub 422 · Reference already exists',
+    body,
+    size: 'normal',
+    footer: [
+      { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '返回修改并重试', className: 'btn-primary', onClick: () => {
+        const next = input.value.trim();
+        if (!next) { toast('请填写新的分支名。', 'error'); input.focus(); return; }
+        if (next === branchName) { toast('请使用不同的分支名。', 'error'); input.focus(); input.select(); return; }
+        if (next.startsWith('/') || next.includes('..') || /\s/.test(next)) {
+          toast('分支名不合法。', 'error'); input.focus(); return;
+        }
+        modal.close();
+        openPrDialog({ prefill: { ...snapshot, branchName: next } });
+      } },
+    ],
+  });
+  setTimeout(() => { input.focus(); input.select(); }, 50);
 }
 
 /* ---------------------------------------------------------------- mobile */
@@ -1782,14 +1865,7 @@ function restoreInitialUi() {
   updateDocMeta();
   updateStats();
 
-  if (state.settings.token) {
-    setConnection(false, 'Token 已设置', '已保存 token，正在验证连接…');
-    new GitHubClient(state.settings.token).getUser()
-      .then((user) => setConnection(true, `@${user.login}`, `已连接 @${user.login}`))
-      .catch((error) => setConnection(false, '连接失败', error.message));
-  } else {
-    setConnection(false, '未连接', '未设置 token；公开 Content 仓库可匿名读取，PR 需要 token');
-  }
+  setConnection(false, '未连接', 'token 仅保存在内存；每次启动都需要重新填写。公开 Content 仓库可匿名读取，PR 需要 token');
 
   if (state.content.body.trim() || state.content.fmRaw.trim()) {
     toast('已恢复上次编辑的本地草稿。', 'info', 2400);
@@ -1802,8 +1878,10 @@ restoreInitialUi();
 window.__WFE__ = {
   state,
   get issues() { return lastIssues; },
+  get tokenSet() { return Boolean(sessionToken); },
   validateNow,
   openPreview,
+  openBranchConflictDialog,
   setEditorTab,
   editors: { body: bodyEditor, frontmatter: fmEditor },
 };

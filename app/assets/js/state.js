@@ -8,12 +8,10 @@ export const CONTENT_REPO = 'Wikifactory-Content';
 
 export function defaultState() {
   return {
-    version: 2,
+    version: 3,
     theme: 'auto',
     settings: {
       branch: '',
-      token: '',
-      rememberToken: true,
       fontSize: 14.5,
       wrap: true,
       templates: {
@@ -60,7 +58,10 @@ function migrate(parsed) {
   if (merged.settings) {
     delete merged.settings.repos;
     delete merged.settings.owner;
+    delete merged.settings.token;
+    delete merged.settings.rememberToken;
   }
+  merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';
   if (!['light', 'dark', 'auto'].includes(merged.theme)) merged.theme = 'auto';
   return merged;
@@ -75,21 +76,34 @@ export function loadState() {
       if (legacy) raw = legacy;
     }
     if (!raw) return defaultState();
-    return migrate(JSON.parse(raw));
+    const migrated = migrate(JSON.parse(raw));
+    // Scrub any token left by older versions immediately; tokens are session-only now.
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(storageSafe(migrated)));
+      localStorage.removeItem('wikifactory-editor:v1');
+    } catch {
+      // Ignore storage errors; the in-memory state still has no token.
+    }
+    return migrated;
   } catch (error) {
     console.warn('[state] 无法读取本地草稿', error);
     return defaultState();
   }
 }
 
+function storageSafe(state) {
+  const serializable = {
+    ...state,
+    settings: { ...state.settings },
+  };
+  delete serializable.settings.token;
+  delete serializable.settings.rememberToken;
+  return serializable;
+}
+
 export function saveState(state) {
   try {
-    const serializable = {
-      ...state,
-      settings: { ...state.settings },
-    };
-    if (!state.settings.rememberToken) serializable.settings.token = '';
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(storageSafe(state)));
     localStorage.removeItem('wikifactory-editor:v1');
     return true;
   } catch (error) {

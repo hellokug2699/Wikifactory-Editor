@@ -2,17 +2,26 @@
 
 面向 [Wikifactory](https://wikifactory.top) **Content 仓库**贡献者的跨平台编辑器。它在编辑器中提供真正的语法高亮、Wiki 语法工具、frontmatter 表单、表格/图片生成器与按需预览，并通过**纯客户端** GitHub API 提交 PR。
 
-> **从 1.1.0 起，编辑器仅支持 `Wikifactory-Content`。** Core / Alias 仓库已从界面、状态与设置中移除；网络层也会拒绝任何其他仓库名的读写请求。**不提供 1.0.0 Release**。仓库 git 引用已重建为单一 v1.1.0 提交，1.0.0 产物不在当前分支、标签或 Release 中。
+> **从 1.1.0 起，编辑器仅支持 `Wikifactory-Content`。** Core / Alias 仓库已从界面、状态与设置中移除；网络层也会拒绝任何其他仓库名的读写请求。**不提供 1.0.0 Release**。仓库 git 引用已重建，当前历史只包含 1.1.x；1.0.0 产物不在当前分支、标签或 Release 中。
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
-## 下载（v1.1.0）
+## v1.1.1 安全更新
+
+- **token 不落盘**：只保存在当前运行内存，不写入 localStorage / 文件；关闭应用即失效。旧版本遗留的本地 token 会在启动时被清除。
+- **禁止显示与复制**：token 输入框保持 password，移除「显示」按钮，并阻止复制、剪切、右键菜单与拖拽。
+- **完整 token 指南**：设置页新增从创建 token 到测试连接的完整步骤，并明确说明公开仓库不等于可推送，绝大多数贡献者必须通过 Fork 提交。
+- **分支名冲突处理**：编辑器不再自动追加后缀；若分支名被其他人占用，会弹出错误窗口要求更换，并保留已填写的提交信息。
+- **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
+- 版本号：**1.1.1**（Android versionCode 3）。
+
+## 下载（v1.1.1）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.0-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.0/Wikifactory-Editor-v1.1.0-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.0-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.0/Wikifactory-Editor-v1.1.0-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.0-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.0/Wikifactory-Editor-v1.1.0-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.1-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.1/Wikifactory-Editor-v1.1.1-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.1-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.1/Wikifactory-Editor-v1.1.1-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.1-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.1/Wikifactory-Editor-v1.1.1-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -25,9 +34,9 @@
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-3f371161df9ac5d706c68bf139e9d2605672915da0d4d398a88a121ca34250cc  Wikifactory-Editor-v1.1.0-android.apk
-d6267e2d783b0fa2f2474961199477c4f08dd57d936419b58cfdb05092ba8ee5  Wikifactory-Editor-v1.1.0-windows-x64.exe
-4b249d02b4649122dab3f9f639dcce48453d3a849f35a2ec7c1362b45dfdbd43  Wikifactory-Editor-v1.1.0-web.zip
+92a2dd01dfbc7ff2ce363c341273de33319b476dcc302058a8854b468b09bbfc  Wikifactory-Editor-v1.1.1-android.apk
+1ed7e66e3bbab61d038c933683bee55b5062a0577b9b0e550bcef07af1a8c7f3  Wikifactory-Editor-v1.1.1-windows-x64.exe
+8976a308c5e7b4d3f6c76f2c12099083bed35084c8e1feab3a910e602f0a8dce  Wikifactory-Editor-v1.1.1-web.zip
 ```
 
 ## 功能
@@ -65,12 +74,19 @@ d6267e2d783b0fa2f2474961199477c4f08dd57d936419b58cfdb05092ba8ee5  Wikifactory-Ed
 
 ### GitHub PR（纯客户端）
 
-- token 只保存在本机 `localStorage`，所有请求直接发往 `https://api.github.com`。
+- token **只保存在当前运行内存**，不会写入 localStorage / 文件；关闭应用即失效。所有请求直接发往 `https://api.github.com`。
 - 目标仓库**硬编码**为 `hellokug2699/Wikifactory-Content`；设置中没有仓库输入框，网络层也会拒绝其他仓库名。
 - 有写权限时直接从最新 base 创建临时分支并提交；没有写权限时自动 Fork → 同步 Fork → 向 Content 仓库发起 PR。
 - 一次 PR 可同时提交正文与多张图片；支持 Draft PR、自定义分支名 / 提交信息 / PR 标题与说明。
+- **分支名由用户保留**：编辑器不会自动追加后缀；若分支名被其他人占用，会弹出错误窗口，要求你更换分支名后重试。
 - **Content 仓库不要求分支 up-to-date**：编辑器不检查也不阻塞；每次从最新 base 创建分支。
 - 成功后显示 PR 链接，可复制链接。
+
+### 自动删除已合并分支
+
+仓库新增 [.github/workflows/delete-merged-branches.yml](.github/workflows/delete-merged-branches.yml)：PR 合并后自动删除**本仓库内**的 head 分支（`main` / `master` / `develop` 除外）。
+
+> Fork PR 的 head 分支位于贡献者自己的仓库，上游 `GITHUB_TOKEN` 无权删除；贡献者可在自己的 Fork 设置中开启 “Automatically delete head branches”，或在合并后手动删除。
 
 ### 移动端
 
@@ -106,6 +122,18 @@ d6267e2d783b0fa2f2474961199477c4f08dd57d936419b58cfdb05092ba8ee5  Wikifactory-Ed
 4. 点「预览」检查最终页面。
 5. 点「提交 PR」，确认分支名 / 提交信息 / PR 标题，创建 PR。
 
+### Token 获取步骤（贡献者必读）
+
+1. 打开 [GitHub → Settings → Developer settings → Personal access tokens (classic)](https://github.com/settings/tokens/new)。
+2. Note 填 `Wikifactory Editor`，Expiration 选择合适期限。
+3. 勾选 `public_repo`（公开仓库读写）。这是推荐方式。
+4. 点击 Generate token，复制一次并粘贴到编辑器设置中。
+5. 保存设置并点击「测试连接」，确认显示你的 `@用户名`。
+
+> **公开仓库 ≠ 可以直接推送。** 绝大多数贡献者没有 `Wikifactory-Content` 的写权限；编辑器会自动先 Fork 到你的账户，再把分支推送到你的 Fork，并向 `hellokug2699/Wikifactory-Content` 发起 PR。只有维护者才可能直接在上游建分支。
+>
+> 若使用 Fine-grained token，需要对你 Fork 的 Content 仓库拥有 Contents / Pull requests 读写权限；若无法创建 Fork，请改用经典 token 的 `public_repo`。
+
 ### Token 权限
 
 | 仓库 | 经典 token | 细粒度 token |
@@ -113,7 +141,7 @@ d6267e2d783b0fa2f2474961199477c4f08dd57d936419b58cfdb05092ba8ee5  Wikifactory-Ed
 | `Wikifactory-Content`（公开） | `public_repo`（提交 PR）/ 匿名读取也可 | 目标仓库的 Contents: Read and write、Pull requests: Read and write |
 
 > 没有写权限时会自动走 Fork；Fork 由 GitHub 账户完成，公开仓库通常只需要 `public_repo`。
-> token 只存在本机；关闭「记住 token」后仅本次运行有效。应用没有后端，不会把 token 发往 GitHub 以外的地址。
+> token 只存在当前运行内存，不会写入 localStorage / 文件；关闭应用后需重新填写。输入框不提供「显示」按钮，并阻止复制 / 剪切 / 右键 / 拖拽。应用没有后端，不会把 token 发往 GitHub 以外的地址。
 
 ## 快捷键
 
@@ -187,7 +215,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.0-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.1-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 ```
@@ -206,7 +234,8 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 
 ## 安全说明
 
-- token 只保存在 WebView / 浏览器的 `localStorage`，不会发送到 GitHub 以外的域名；没有服务端。
+- token 只保存在当前运行内存，不会写入 WebView / 浏览器的 localStorage 或文件；关闭应用即失效。
+- token 输入框不提供显示按钮，并阻止复制、剪切、右键菜单与拖拽；请勿自行截图或粘贴到其他位置。
 - 网络层只允许 `Wikifactory-Content`；Core / Alias 仓库名会被直接拒绝。
 - 建议为编辑器单独创建最小权限 token，并定期在 GitHub 设置中撤销。
 - 公开仓库内不要提交任何 token、密钥或个人隐私信息。

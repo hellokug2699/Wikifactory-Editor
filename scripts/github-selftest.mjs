@@ -14,7 +14,7 @@ async function test(name, fn) {
 }
 
 /** A tiny in-memory GitHub API. */
-function createMock({ writable }) {
+function createMock({ writable, existingBranch = '' }) {
   const state = {
     refs: new Map([['o/Wikifactory-Content@main', 'base-sha']]),
     commits: new Map([['base-sha', { tree: { sha: 'base-tree' } }]]),
@@ -65,6 +65,9 @@ function createMock({ writable }) {
     if (createRefMatch && method === 'POST') {
       const owner = createRefMatch[1];
       const repo = createRefMatch[2];
+      if (existingBranch && body.ref === `refs/heads/${existingBranch}`) {
+        return response(422, { message: 'Reference already exists' });
+      }
       if (owner === 'o' && !writable) {
         return response(403, { message: 'Resource not accessible by personal access token' });
       }
@@ -163,6 +166,24 @@ await test('fork PR fallback (no write access)', async () => {
   assert.equal(result.headOwner, 'contributor');
   assert.equal(state.pulls[0].head, 'contributor:wfe/fork');
   assert.ok(state.refs.has('contributor/Wikifactory-Content@wfe/fork'));
+});
+
+await test('branch conflict is reported without auto-renaming', async () => {
+  const state = createMock({ writable: true, existingBranch: 'wfe/taken' });
+  const client = new GitHubClient('token');
+  await assert.rejects(
+    client.submitPullRequest({
+      owner: 'o',
+      repo: 'Wikifactory-Content',
+      branchName: 'wfe/taken',
+      files: [{ path: 'x.md', text: 'x' }],
+      commitMessage: 'm',
+      prTitle: 't',
+      prBody: 'b',
+    }),
+    (error) => error.code === 'BRANCH_EXISTS' && error.status === 422,
+  );
+  assert.equal(state.pulls.length, 0);
 });
 
 await test('rejects Core / Alias repositories', async () => {
