@@ -6,6 +6,15 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.1.3 功能更新
+
+- **启动检查更新**：每次启动通过 GitHub API 读取编辑器仓库的最新 Release，仅提示版本与说明，**不自动下载**；设置页可关闭，也可以在提示窗口中勾选「不再在启动时检查更新」。
+- **CONTRIBUTING.md 联动**：帮助、设置与移动端菜单新增「Content 使用须知」，直接读取 `Wikifactory-Content/CONTRIBUTING.md` 并在应用内渲染（相对链接自动转为 GitHub 地址）；读取失败时给出 GitHub 直达链接。
+- **退出提示**：退出时若本次会话有修改，提示「保存并退出 / 不保存退出 / 取消」；保存后下次启动恢复，不保存则回到进入程序时的内容。可在设置 →「退出行为」选择「每次询问 / 总是保存 / 不保存直接退出」，提示窗口内也会说明该入口。
+- Android 返回键同样会走退出确认；桌面版与网页版在直接关闭窗口时由 `beforeunload` 按同一设置处理。
+- 版本号：**1.1.3**（Android versionCode 5）。
+- 注意：本次 APK 由新的 Android debug 密钥签名，指纹与 1.1.2 不同；若覆盖安装失败，请先卸载旧版再安装。
+
 ## v1.1.2 功能修复
 
 - **允许粘贴**：token 输入框仍禁止复制 / 剪切 / 拖拽，但支持 `Ctrl/⌘+V`、右键菜单与移动端长按粘贴（1.1.1 一并屏蔽了右键菜单，导致部分设备无法粘贴）。
@@ -25,13 +34,13 @@
 - **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
 - 版本号：**1.1.1**（Android versionCode 3）。
 
-## 下载（v1.1.2）
+## 下载（v1.1.3）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.2-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.2/Wikifactory-Editor-v1.1.2-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.2-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.2/Wikifactory-Editor-v1.1.2-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.2-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.2/Wikifactory-Editor-v1.1.2-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.3-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.3/Wikifactory-Editor-v1.1.3-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.3-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.3/Wikifactory-Editor-v1.1.3-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.3-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.3/Wikifactory-Editor-v1.1.3-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -44,9 +53,9 @@
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-b3c9643e3902e58d427706c66c09f5a6515d31524d9791970564199ba933f776  Wikifactory-Editor-v1.1.2-android.apk
-95e184f9634671c39943d151a7b642f4c1aa7d751d4e41ab643ecc344fdc1750  Wikifactory-Editor-v1.1.2-windows-x64.exe
-b06a0bf3fc4f17e4689e38faf5cf546962945fb7a1cb2a6389330cc4b456ec38  Wikifactory-Editor-v1.1.2-web.zip
+0c8636af3f8a320eb4362228cae5ae42819667b9f478387a6d7acfe8db446a02  Wikifactory-Editor-v1.1.3-android.apk
+e6ff69374123a122dad83b7637fd809c4e0f4fa63c8a86a96608a22ee39ea2ad  Wikifactory-Editor-v1.1.3-windows-x64.exe
+0246e14de61bd11539cacbaa3183e014eb7e5af2d4e79f8cadc120ade25b2052  Wikifactory-Editor-v1.1.3-web.zip
 ```
 
 ## 功能
@@ -225,7 +234,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.2-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.3-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 ```
@@ -249,6 +258,7 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 - token 输入框不提供显示按钮，并阻止复制、剪切与拖拽；粘贴可用，但请勿自行截图或粘贴到其他位置。
 - 注意：网页 / Windows 的加密密钥由本机可见信息派生，能运行调试工具的攻击者仍可能解密，属于提高门槛而非硬件隔离；Android Keystore 提供真正的不可导出密钥。
 - 网络层只允许 `Wikifactory-Content`；Core / Alias 仓库名会被直接拒绝。
+- 启动检查更新与读取 CONTRIBUTING.md 只访问 `api.github.com`，不会发送 token 到编辑器仓库；更新只提示、不下载。
 - 建议为编辑器单独创建最小权限 token，并定期在 GitHub 设置中撤销。
 - 公开仓库内不要提交任何 token、密钥或个人隐私信息。
 

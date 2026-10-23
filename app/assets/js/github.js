@@ -102,6 +102,19 @@ export class GitHubClient {
     };
   }
 
+  /** Latest published release of the editor repository (public, no token needed). */
+  async getLatestRelease(owner, repo) {
+    const { data } = await this.request(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`);
+    return {
+      tag: data.tag_name || '',
+      name: data.name || data.tag_name || '',
+      url: data.html_url || '',
+      publishedAt: data.published_at || '',
+      body: data.body || '',
+      prerelease: Boolean(data.prerelease),
+    };
+  }
+
   async getRepo(owner, repo) {
     assertContentRepo(repo);
     const { data } = await this.request(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);

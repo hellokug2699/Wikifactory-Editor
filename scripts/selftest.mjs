@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   joinDocument, splitFrontmatter, setYamlField, frontmatterData,
   validateContentPath, validateWikiSyntax, validateDocument,
 } from '../app/assets/js/validate.js';
+import { APP_VERSION } from '../app/assets/js/state.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -87,6 +89,11 @@ test('aggregate validation sources', () => {
   });
   assert.ok(issues.some((i) => i.source === 'frontmatter'));
   assert.ok(issues.some((i) => i.source === 'body'));
+});
+
+test('APP_VERSION matches package.json', () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(APP_VERSION, pkg.version);
 });
 
 console.log(`\n${passed} tests passed.`);

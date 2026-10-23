@@ -2,9 +2,16 @@
 
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
+/** Kept in sync with package.json by scripts/selftest.mjs. */
+export const APP_VERSION = '1.1.3';
+
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';
 export const CONTENT_REPO = 'Wikifactory-Content';
+
+/** Public repository that hosts editor releases (update checks only). */
+export const EDITOR_OWNER = 'hellokug2699';
+export const EDITOR_REPO = 'Wikifactory-Editor';
 
 export function defaultState() {
   return {
@@ -15,6 +22,8 @@ export function defaultState() {
       fontSize: 14.5,
       wrap: true,
       rememberToken: true,
+      updateCheck: true,
+      exitBehavior: 'ask',
       templates: {
         tableCell: '',
         imageStyle: 'wiki',
@@ -62,6 +71,8 @@ function migrate(parsed) {
     // Legacy plaintext tokens are always dropped; the encrypted store replaces them.
     delete merged.settings.token;
     if (typeof merged.settings.rememberToken !== 'boolean') merged.settings.rememberToken = true;
+    if (typeof merged.settings.updateCheck !== 'boolean') merged.settings.updateCheck = true;
+    if (!['ask', 'save', 'discard'].includes(merged.settings.exitBehavior)) merged.settings.exitBehavior = 'ask';
   }
   merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';

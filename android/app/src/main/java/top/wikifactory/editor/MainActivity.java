@@ -150,6 +150,11 @@ public class MainActivity extends Activity {
                         .remove(SECURE_TOKEN_FIELD)
                         .apply();
             }
+
+            @JavascriptInterface
+            public void exitApp() {
+                runOnUiThread(() -> finish());
+            }
         }, "AndroidEditor");
 
         setContentView(webView);
@@ -276,11 +281,22 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
+        if (webView == null) {
             super.onBackPressed();
+            return;
         }
+        if (webView.canGoBack()) {
+            webView.goBack();
+            return;
+        }
+        // Let the web layer ask about unsaved changes before finishing the activity.
+        webView.evaluateJavascript(
+                "window.__WFE__ && window.__WFE__.requestExit ? (window.__WFE__.requestExit(), 'handled') : 'noop'",
+                value -> {
+                    if (!"\"handled\"".equals(value)) {
+                        finish();
+                    }
+                });
     }
 
     @Override

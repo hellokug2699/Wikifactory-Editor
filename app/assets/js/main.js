@@ -1,7 +1,8 @@
 /** Wikifactory Editor — Content-only application controller. */
 
 import {
-  CONTENT_OWNER, CONTENT_REPO, basename, downloadText, escapeHtml, formatBytes, formatTime,
+  APP_VERSION, CONTENT_OWNER, CONTENT_REPO, EDITOR_OWNER, EDITOR_REPO,
+  basename, downloadText, escapeHtml, formatBytes, formatTime,
   loadState, saveState, slugify, stripExt,
 } from './state.js';
 import { CodeEditor, CURSOR } from './code-editor.js';
@@ -68,6 +69,9 @@ let issuesStale = true;
 let saveTimer = 0;
 let validateTimer = 0;
 let formSyncTimer = 0;
+let sessionBaseline = null;
+let updateCheckRunning = false;
+let contributingCache = null;
 let connection = { ok: false, login: '', scopes: '', message: '未连接' };
 
 const bodyEditor = new CodeEditor(els.bodyHost, {
@@ -579,6 +583,7 @@ async function loadCurrentFile() {
     updateStats();
     updateSaveStatus();
     saveState(state);
+    captureSessionBaseline();
     toast(`已加载 ${CONTENT_OWNER}/${CONTENT_REPO}/${path}`, 'success');
   } catch (error) {
     toast(error.message || '加载失败。', 'error');
@@ -599,6 +604,7 @@ function saveDraft(manual = false) {
   updateSaveStatus();
   updateStats();
   if (manual) toast(ok ? '草稿已保存到本地。' : '本地保存失败（可能是存储空间不足）。', ok ? 'success' : 'error');
+  return ok;
 }
 
 function exportCurrentFile() {
@@ -1332,6 +1338,29 @@ function openSettings() {
         </label>
         <label class="check-row" style="align-self:end"><input type="checkbox" id="set-wrap" ${state.settings.wrap ? 'checked' : ''}><span>自动换行</span></label>
       </div>
+
+      <label class="check-row">
+        <input type="checkbox" id="set-update-check" ${state.settings.updateCheck === false ? '' : 'checked'}>
+        <span>启动时检查更新（仅提示，不自动下载）</span>
+      </label>
+      <label class="field">
+        <span class="form-label">退出行为</span>
+        <select class="input" id="set-exit-behavior">
+          <option value="ask" ${state.settings.exitBehavior === 'ask' ? 'selected' : ''}>每次询问（默认）</option>
+          <option value="save" ${state.settings.exitBehavior === 'save' ? 'selected' : ''}>总是保存后退出</option>
+          <option value="discard" ${state.settings.exitBehavior === 'discard' ? 'selected' : ''}>不保存直接退出</option>
+        </select>
+        <p class="form-help">退出时若本次会话有未保存修改，会按此设置处理；提示窗口内也会告知此入口。</p>
+      </label>
+      <div class="button-row">
+        <button class="btn btn-small" type="button" id="set-check-update">立即检查更新</button>
+        <button class="btn btn-small" type="button" id="set-contributing">查看 Content 使用须知</button>
+      </div>
+      <div class="button-row">
+        <button class="btn btn-small btn-danger" type="button" id="set-exit">退出应用</button>
+        <span class="form-help">Wikifactory Editor v${escapeHtml(APP_VERSION)}</span>
+      </div>
+
       <button class="btn" type="button" id="set-test">测试连接</button>
       <div class="connection-result" id="set-result" hidden></div>
     </div>
@@ -1391,6 +1420,18 @@ function openSettings() {
     }
   });
 
+  body.querySelector('#set-check-update').addEventListener('click', () => {
+    checkForUpdates({ manual: true });
+  });
+  body.querySelector('#set-contributing').addEventListener('click', () => {
+    modal.close();
+    openContributing();
+  });
+  body.querySelector('#set-exit').addEventListener('click', () => {
+    modal.close();
+    requestExit();
+  });
+
   const modal = openModal({
     title: '设置与 GitHub 连接',
     subtitle: 'token 加密保存在本机；提交时直接创建 Content 仓库 PR',
@@ -1403,6 +1444,8 @@ function openSettings() {
         state.settings.branch = body.querySelector('#set-branch').value.trim();
         state.settings.fontSize = Number(body.querySelector('#set-fontsize').value) || 14.5;
         state.settings.wrap = body.querySelector('#set-wrap').checked;
+        state.settings.updateCheck = body.querySelector('#set-update-check').checked;
+        state.settings.exitBehavior = body.querySelector('#set-exit-behavior').value;
         const remember = rememberInput.checked;
         state.settings.rememberToken = remember;
         applyEditorPrefs();
@@ -1445,6 +1488,271 @@ function applyEditorPrefs() {
   document.documentElement.style.setProperty('--editor-font-size', `${size}px`);
   bodyEditor.setWrap(state.settings.wrap);
   fmEditor.setWrap(state.settings.wrap);
+}
+
+/* -------------------------------------------------------- updates / guide */
+
+function parseVersion(value) {
+  return String(value || '')
+    .replace(/^v/i, '')
+    .split(/[.+-]/)
+    .slice(0, 3)
+    .map((part) => Number.parseInt(part, 10) || 0);
+}
+
+function compareVersions(a, b) {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+async function checkForUpdates({ manual = false } = {}) {
+  if (updateCheckRunning) return;
+  if (!manual && state.settings.updateCheck === false) return;
+  updateCheckRunning = true;
+  try {
+    const release = await new GitHubClient('').getLatestRelease(EDITOR_OWNER, EDITOR_REPO);
+    const latest = String(release.tag || '').replace(/^v/i, '');
+    if (!latest) {
+      if (manual) toast('尚未找到已发布的版本。', 'info');
+      return;
+    }
+    if (compareVersions(latest, APP_VERSION) <= 0) {
+      if (manual) toast(`当前版本 v${APP_VERSION} 已是最新。`, 'success');
+      return;
+    }
+    openUpdateDialog({ latest, release });
+  } catch (error) {
+    console.warn('[update] 检查更新失败', error);
+    if (manual) toast(`检查更新失败：${error.message}`, 'error', 4200);
+  } finally {
+    updateCheckRunning = false;
+  }
+}
+
+function openUpdateDialog({ latest, release }) {
+  const notes = String(release.body || '').trim();
+  const published = release.publishedAt
+    ? new Date(release.publishedAt).toLocaleDateString('zh-CN')
+    : '未知';
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="form-grid">
+      <div class="form-note is-accent">
+        发现新版本 <strong>v${escapeHtml(latest)}</strong>，当前版本 v${escapeHtml(APP_VERSION)}。
+        编辑器<strong>不会自动下载</strong>，请前往 Release 页面手动下载安装。
+      </div>
+      <div class="pr-summary">
+        <div class="pr-summary-row"><span>版本</span><span>${escapeHtml(release.name || `v${latest}`)}</span></div>
+        <div class="pr-summary-row"><span>发布时间</span><span>${escapeHtml(published)}</span></div>
+      </div>
+      ${notes ? `<div class="update-notes">${escapeHtml(notes.slice(0, 1400))}</div>` : ''}
+      <label class="check-row">
+        <input type="checkbox" id="update-disable">
+        <span>不再在启动时检查更新（可随时在设置中重新开启）</span>
+      </label>
+    </div>
+  `;
+  const applyDisable = () => {
+    if (!body.querySelector('#update-disable')?.checked) return;
+    state.settings.updateCheck = false;
+    saveState(state);
+  };
+  const releaseUrl = release.url || `https://github.com/${EDITOR_OWNER}/${EDITOR_REPO}/releases`;
+  const modal = openModal({
+    title: `可更新到 v${latest}`,
+    subtitle: '启动时自动检查；仅提示，不下载',
+    body,
+    size: 'normal',
+    onClose: applyDisable,
+    footer: [
+      { label: '稍后提醒', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '前往下载', className: 'btn-primary', onClick: () => {
+        applyDisable();
+        openExternal(releaseUrl);
+        modal.close();
+      } },
+    ],
+  });
+}
+
+function contributingUrl(path = '') {
+  return path
+    ? `https://github.com/${CONTENT_OWNER}/${CONTENT_REPO}/blob/HEAD/${path}`
+    : `https://github.com/${CONTENT_OWNER}/${CONTENT_REPO}`;
+}
+
+async function loadContributing() {
+  if (contributingCache) return contributingCache;
+  const client = new GitHubClient(sessionToken || '');
+  for (const path of ['CONTRIBUTING.md', 'CONTRIBUTING.MD', 'contributing.md', 'docs/CONTRIBUTING.md']) {
+    try {
+      const file = await client.loadFile(CONTENT_OWNER, CONTENT_REPO, path, state.settings.branch || '');
+      contributingCache = { path, text: file.text };
+      return contributingCache;
+    } catch (error) {
+      if (error instanceof GitHubError && error.status === 404) continue;
+      throw error;
+    }
+  }
+  return null;
+}
+
+async function openContributing() {
+  const host = document.createElement('div');
+  host.innerHTML = `
+    <div class="form-note" id="contributing-status">正在从 ${CONTENT_OWNER}/${CONTENT_REPO} 读取 CONTRIBUTING.md…</div>
+    <div id="contributing-body"></div>
+  `;
+  let remoteUrl = contributingUrl();
+  const modal = openModal({
+    title: 'Content 使用须知',
+    subtitle: `与 ${CONTENT_OWNER}/${CONTENT_REPO} 的 CONTRIBUTING.md 联动`,
+    body: host,
+    size: 'wide',
+    footer: [
+      { label: '在 GitHub 打开', className: 'btn', onClick: () => openExternal(remoteUrl) },
+      { label: '关闭', className: 'btn-primary', onClick: () => modal.close() },
+    ],
+  });
+  const statusEl = host.querySelector('#contributing-status');
+  const bodyEl = host.querySelector('#contributing-body');
+  try {
+    const doc = await loadContributing();
+    if (!doc) {
+      statusEl.className = 'form-note';
+      statusEl.innerHTML = `Content 仓库暂未提供 CONTRIBUTING.md。你可以直接在 GitHub 上查看仓库说明：<a href="${contributingUrl()}" target="_blank" rel="noopener">${CONTENT_OWNER}/${CONTENT_REPO}</a>。`;
+      return;
+    }
+    remoteUrl = contributingUrl(doc.path);
+    statusEl.hidden = true;
+    const article = document.createElement('article');
+    article.className = 'wiki-preview contributing-article';
+    bodyEl.appendChild(article);
+    buildPreview({ path: doc.path, fmRaw: '', body: doc.text, article });
+    article.querySelector('.preview-meta')?.remove();
+    // Resolve relative links the way GitHub does: relative to the file itself.
+    const baseUrl = contributingUrl(doc.path);
+    for (const link of article.querySelectorAll('a[href]')) {
+      const href = link.getAttribute('href') || '';
+      if (!href || href.startsWith('#') || /^(https?:|mailto:)/i.test(href)) continue;
+      link.setAttribute('href', new URL(href, baseUrl).href);
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener');
+    }
+  } catch (error) {
+    statusEl.className = 'form-note is-error';
+    statusEl.innerHTML = `读取 CONTRIBUTING.md 失败：${escapeHtml(error.message)}<br>
+      可直接在 GitHub 查看：<a href="${contributingUrl('CONTRIBUTING.md')}" target="_blank" rel="noopener">CONTRIBUTING.md</a>
+      （公开仓库可匿名读取；填写 token 可提高 API 额度）。`;
+  }
+}
+
+/* ------------------------------------------------------------------ exit */
+
+function captureSessionBaseline() {
+  sessionBaseline = {
+    path: state.content.path,
+    body: state.content.body,
+    fmRaw: state.content.fmRaw,
+  };
+}
+
+function hasSessionChanges() {
+  if (!sessionBaseline) return dirty;
+  return state.content.path !== sessionBaseline.path
+    || state.content.body !== sessionBaseline.body
+    || state.content.fmRaw !== sessionBaseline.fmRaw;
+}
+
+function discardSessionChanges() {
+  if (!sessionBaseline) return;
+  state.content.path = sessionBaseline.path;
+  state.content.body = sessionBaseline.body;
+  state.content.fmRaw = sessionBaseline.fmRaw;
+  els.contentPath.value = sessionBaseline.path;
+  bodyEditor.setValue(sessionBaseline.body, { reset: true });
+  fmEditor.setValue(sessionBaseline.fmRaw, { reset: true });
+  dirty = false;
+  saveState(state);
+  updateDocMeta();
+  updateStats();
+  updateSaveStatus();
+}
+
+function exitApplication() {
+  if (window.Neutralino?.app?.exit) {
+    window.Neutralino.app.exit();
+    return;
+  }
+  if (window.AndroidEditor?.exitApp) {
+    window.AndroidEditor.exitApp();
+    return;
+  }
+  window.close();
+  toast('浏览器不允许脚本关闭标签页；更改已按你的选择处理，可直接关闭窗口。', 'info', 4600);
+}
+
+function openExitDialog() {
+  const behavior = state.settings.exitBehavior || 'ask';
+  const behaviorLabel = behavior === 'save' ? '总是保存' : behavior === 'discard' ? '不保存' : '每次询问';
+  const body = document.createElement('div');
+  body.innerHTML = `
+    <div class="form-grid">
+      <div class="form-note is-accent">当前会话有未保存的更改，退出前请确认如何处理。</div>
+      <div class="form-note">
+        保存后，下次启动会自动恢复本次内容；不保存则销毁本次修改，回到进入程序时的内容。
+        默认选项当前为「${behaviorLabel}」，可在 <strong>设置 → 退出行为</strong> 中调整，调整后不再弹出本窗口。
+      </div>
+    </div>
+  `;
+  const modal = openModal({
+    title: '退出前保存更改？',
+    subtitle: `Wikifactory Editor v${APP_VERSION}`,
+    body,
+    size: 'narrow',
+    footer: [
+      { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '不保存退出', className: 'btn-danger', onClick: () => {
+        discardSessionChanges();
+        modal.close();
+        exitApplication();
+      } },
+      { label: '保存并退出', className: 'btn-primary', onClick: () => {
+        if (!saveDraft(false)) {
+          toast('本地保存失败，已取消退出。', 'error', 4200);
+          return;
+        }
+        modal.close();
+        exitApplication();
+      } },
+    ],
+  });
+}
+
+function requestExit() {
+  if (!hasSessionChanges()) {
+    exitApplication();
+    return;
+  }
+  const behavior = state.settings.exitBehavior || 'ask';
+  if (behavior === 'save') {
+    if (!saveDraft(false)) {
+      toast('本地保存失败，已取消退出。', 'error', 4200);
+      return;
+    }
+    exitApplication();
+    return;
+  }
+  if (behavior === 'discard') {
+    discardSessionChanges();
+    exitApplication();
+    return;
+  }
+  openExitDialog();
 }
 
 /* ----------------------------------------------------------------- help */
@@ -1503,14 +1811,21 @@ toc: true
         <p style="margin:0;color:var(--text-soft)">每次提交都从 Content 仓库最新 <code>main</code> 创建临时分支。有写权限时直接建分支；没有写权限时自动 Fork 并向上游发起 PR。Content 仓库不要求分支与 base 保持 up-to-date。</p>
       </div>
       <div class="form-note">安全提示：勾选「记住 token」后，token 以加密形式保存在本机（Android Keystore / 其他平台 AES-256-GCM），不会出现明文；在共享设备上请关闭该选项，离开前用设置中的「清除 token」。公开仓库中不要提交任何密钥。</div>
+      <div class="form-note is-accent">
+        版本 <strong>v${escapeHtml(APP_VERSION)}</strong>。使用前建议先阅读 Content 仓库的 CONTRIBUTING.md；编辑器不会自动下载更新，只会在启动时提示新版本。
+      </div>
     </div>
   `;
   const modal = openModal({
     title: '帮助与语法速查',
-    subtitle: 'Wikifactory Content Contributor Editor',
+    subtitle: `Wikifactory Content Contributor Editor · v${APP_VERSION}`,
     body,
     size: 'wide',
-    footer: [{ label: '关闭', className: 'btn-primary', onClick: () => modal.close() }],
+    footer: [
+      { label: '使用须知', className: 'btn', onClick: () => { modal.close(); openContributing(); } },
+      { label: '检查更新', className: 'btn', onClick: () => { modal.close(); checkForUpdates({ manual: true }); } },
+      { label: '关闭', className: 'btn-primary', onClick: () => modal.close() },
+    ],
   });
 }
 
@@ -1738,9 +2053,11 @@ function openMobileMenu() {
       <button class="btn btn-block" type="button" data-mobile-action="settings">${icon('settings')}GitHub 设置</button>
       <button class="btn btn-block" type="button" data-mobile-action="theme">${icon('contrast')}切换主题</button>
       <button class="btn btn-block" type="button" data-mobile-action="help">${icon('help')}帮助与语法</button>
+      <button class="btn btn-block" type="button" data-mobile-action="contributing">${icon('file-text')}Content 使用须知</button>
       <button class="btn btn-block" type="button" data-mobile-action="save">${icon('save')}保存本地草稿</button>
       <button class="btn btn-block" type="button" data-mobile-action="export">${icon('download')}导出当前文件</button>
       <button class="btn btn-block" type="button" data-mobile-action="sidebar">${icon('panel-left')}打开文档侧栏</button>
+      <button class="btn btn-block btn-danger" type="button" data-mobile-action="exit">${icon('x')}退出应用</button>
     </div>
   `;
   const modal = openModal({
@@ -1761,9 +2078,11 @@ function openMobileMenu() {
       applyTheme(state.theme);
       saveState(state);
     } else if (action === 'help') openHelp();
+    else if (action === 'contributing') openContributing();
     else if (action === 'save') saveDraft(true);
     else if (action === 'export') exportCurrentFile();
     else if (action === 'sidebar') openSidebar();
+    else if (action === 'exit') requestExit();
   });
 }
 
@@ -1836,7 +2155,23 @@ function bindEvents() {
     event.preventDefault();
     openExternal(link.href);
   });
-  window.addEventListener('beforeunload', () => saveState(state));
+  window.addEventListener('beforeunload', (event) => {
+    if (!hasSessionChanges()) {
+      saveState(state);
+      return;
+    }
+    const behavior = state.settings.exitBehavior || 'ask';
+    if (behavior === 'save') {
+      saveDraft(false);
+      return;
+    }
+    if (behavior === 'discard') {
+      discardSessionChanges();
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = '';
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) saveState(state);
   });
@@ -1945,18 +2280,28 @@ function restoreInitialUi() {
   if (state.content.body.trim() || state.content.fmRaw.trim()) {
     toast('已恢复上次编辑的本地草稿。', 'info', 2400);
   }
+
+  captureSessionBaseline();
+  if (state.settings.updateCheck !== false) {
+    setTimeout(() => checkForUpdates(), 1500);
+  }
 }
 
 bindEvents();
 restoreInitialUi();
 
 window.__WFE__ = {
+  version: APP_VERSION,
   state,
   get issues() { return lastIssues; },
   get tokenSet() { return Boolean(sessionToken); },
   validateNow,
   openPreview,
   openBranchConflictDialog,
+  openContributing,
+  checkForUpdates,
+  requestExit,
+  hasSessionChanges,
   setEditorTab,
   editors: { body: bodyEditor, frontmatter: fmEditor },
 };
