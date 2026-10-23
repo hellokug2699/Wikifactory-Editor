@@ -1,6 +1,17 @@
 /** Wikifactory Content rules: page paths, frontmatter and Wiki syntax. */
 
-export const RESERVED_PATHS = ['search', 'pagefind', '_astro', '404', 'about'];
+import {
+  GATE_DATE_RE, ICON_DIR, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_DIR, IMAGE_EXTENSIONS,
+  RESERVED_PATHS, frontmatterTypeProblems, iconPathFor, isValidGateDate, nameProblem,
+} from './content-rules.js';
+
+export {
+  GATE_DATE_RE, ICON_EXTENSIONS, ICON_NAME_RE, IMAGE_EXTENSIONS,
+  isValidGateDate, RESERVED_PATHS,
+};
+
+export const GAME_IMAGE_DIR = IMAGE_DIR;
+export const GAME_ICON_DIR = ICON_DIR;
 
 export const CALLOUTS = {
   note: { label: '说明', tone: 'neutral' },
@@ -23,16 +34,9 @@ export const CALLOUT_ALIASES = {
   示例: 'example',
 };
 
-export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'svg'];
-export const ICON_EXTENSIONS = ['svg', 'png', 'webp', 'jpg', 'jpeg', 'avif', 'gif'];
 export const IMAGE_SIZES = ['sm', 'md', 'lg', 'full'];
 export const IMAGE_ALIGNS = ['left', 'center', 'right'];
 export const ICON_SIZES = ['sm', 'md', 'lg'];
-
-/** Gate (scripts/validate-content.mjs + config/thumbnails.json) asset layout. */
-export const GAME_IMAGE_DIR = 'assets/images';
-export const GAME_ICON_DIR = 'assets/icons';
-export const ICON_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 export const COLOR_TOKENS = {
   R: '#c62828',
@@ -57,7 +61,6 @@ export const COLOR_ALIASES = {
 
 export const CSS_COLOR_RE = /^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\([0-9.,%\s/]+\)|hsla?\([0-9deg.,%\s/]+\)|[a-z]+)$/i;
 const SAFE_MEDIA_RE = /^[a-z0-9][a-z0-9._-]*$/i;
-const ILLEGAL_SEGMENT_RE = /[/\\:*?"<>|\u0000-\u001f]/;
 
 export function issue(severity, message, extra = {}) {
   return { severity, message, ...extra };
@@ -246,12 +249,10 @@ export function validateContentPath(path) {
   if (path.startsWith('/')) issues.push(issue('warn', '路径不需要以 / 开头，提交时会自动去掉'));
 
   const segments = value.split('/').filter(Boolean);
+  const file = segments[segments.length - 1] || '';
   for (const segment of segments) {
-    if (ILLEGAL_SEGMENT_RE.test(segment)) {
-      issues.push(issue('error', `路径片段含非法字符：${segment}`));
-    }
-    if (segment.trim() !== segment) issues.push(issue('error', `路径片段首尾不能有空白：${segment}`));
-    if (/^\./.test(segment)) issues.push(issue('error', `路径片段不能以点开头：${segment}`));
+    const problem = nameProblem(segment, { isFile: segment === file });
+    if (problem) issues.push(issue('error', `路径片段不合法（${problem}）：${segment}`));
   }
 
   if (segments[0] !== 'games') {
@@ -262,7 +263,6 @@ export function validateContentPath(path) {
   if (segments.length >= 2 && RESERVED_PATHS.includes(segments[1].toLowerCase())) {
     issues.push(issue('error', `游戏目录名与站点保留路径冲突：${segments[1]}（${RESERVED_PATHS.join(' / ')}）`));
   }
-  const file = segments[segments.length - 1] || '';
   const ext = file.split('.').pop();
   if (!['md', 'mdx'].includes(ext)) {
     issues.push(issue('error', '页面扩展名必须是 .md 或 .mdx（小写）'));
@@ -283,36 +283,11 @@ export function validateFrontmatter(raw) {
   issues.push(...yamlIssues);
 
   if (raw.trim()) {
-    // Mirrors scripts/validate-content.mjs: null counts as "unset"; quoted values stay strings.
-    if ('title' in map && map.title !== null && typeof map.title !== 'string') issues.push(issue('error', 'title 必须是字符串'));
-    if ('description' in map && map.description !== null && typeof map.description !== 'string') issues.push(issue('error', 'description 必须是字符串'));
-    if ('tags' in map && map.tags !== null) {
-      if (!Array.isArray(map.tags)) issues.push(issue('error', 'tags 必须是字符串数组'));
-      else if (map.tags.some((tag) => typeof tag !== 'string')) issues.push(issue('error', 'tags 的数组元素必须全部是字符串'));
-    }
-    if ('order' in map && map.order !== null && typeof map.order !== 'number') issues.push(issue('error', 'order 必须是数字'));
-    if ('draft' in map && map.draft !== null && typeof map.draft !== 'boolean') issues.push(issue('error', 'draft 必须是布尔值'));
-    if ('toc' in map && map.toc !== null && typeof map.toc !== 'boolean') issues.push(issue('error', 'toc 必须是布尔值'));
-    if ('updated' in map && map.updated !== null) {
-      const ok = isValidGateDate(map.updated);
-      if (!ok) issues.push(issue('error', 'updated 必须是合法日期（YYYY-MM-DD 或 ISO 时间）'));
-    }
+    // Shared with scripts/validate-content.mjs via content-rules.js.
+    for (const problem of frontmatterTypeProblems(map)) issues.push(issue('error', problem));
     if (!map.title) issues.push(issue('warn', '未填写 title，页面将使用文件名作为标题'));
   }
   return issues;
-}
-
-/** Same date rule as the content gate (date or ISO timestamp, real calendar day). */
-export const GATE_DATE_RE =
-  /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
-
-export function isValidGateDate(value) {
-  if (typeof value !== 'string' || !GATE_DATE_RE.test(value)) return false;
-  if (Number.isNaN(Date.parse(value))) return false;
-  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
-  if (month < 1 || month > 12) return false;
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return day >= 1 && day <= lastDay;
 }
 
 /* ------------------------------------------------------------ wiki syntax */
@@ -492,7 +467,7 @@ export function repositoryIconNames(repoPaths, game) {
 }
 
 function iconPathHint(game, name) {
-  return `games/${game}/${GAME_ICON_DIR}/${name}.${ICON_EXTENSIONS[0]}`;
+  return iconPathFor(game, name);
 }
 
 /** Errors when `[icon=…]` has no matching file — same rule as the content gate. */

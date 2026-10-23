@@ -6,6 +6,9 @@ import {
   validateFrontmatter, extractIconRefs, repositoryIconNames,
 } from '../app/assets/js/validate.js';
 import { APP_VERSION } from '../app/assets/js/state.js';
+import {
+  RESERVED_PATHS, nameProblem, rulesMatchConfig, frontmatterTypeProblems,
+} from '../app/assets/js/content-rules.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -147,6 +150,23 @@ test('duplicate URL and case conflicts are reported', () => {
     repoPaths: ['games/Satisfactory/Buildings/MAM.md'],
   });
   assert.ok(caseIssues.some((i) => i.message.includes('大小写冲突')));
+});
+
+test('shared rules are the single source for names and types', () => {
+  assert.deepEqual(RESERVED_PATHS, ['search', 'pagefind', '_astro', '404', 'about']);
+  assert.equal(nameProblem('Page.md', { isFile: true }), null);
+  assert.match(nameProblem('bad:name'), /非法字符/);
+  assert.match(nameProblem(' Page'), /空白/);
+  assert.ok(frontmatterTypeProblems({ order: '5' }).length > 0);
+  assert.equal(frontmatterTypeProblems({ title: null, tags: ['a'] }).length, 0);
+});
+
+test('shared rules detect config drift', () => {
+  const reserved = RESERVED_PATHS.map((item) => ({ path: item, reason: '' }));
+  const thumbnails = { icon: { dir: 'assets/icons', extensions: ['svg', 'png', 'webp', 'jpg', 'jpeg', 'avif', 'gif'] } };
+  assert.deepEqual(rulesMatchConfig({ reserved, thumbnails }), []);
+  assert.ok(rulesMatchConfig({ reserved: reserved.slice(0, 2), thumbnails }).length > 0);
+  assert.ok(rulesMatchConfig({ reserved, thumbnails: { icon: { dir: 'assets/images', extensions: [] } } }).length > 0);
 });
 
 console.log(`\n${passed} tests passed.`);

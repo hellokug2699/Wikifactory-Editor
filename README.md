@@ -6,6 +6,12 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.1.8 质量更新
+
+- **Release 签名与一键重签名**：新增 `scripts/android-release.mjs`（`npm run build:android:release`）。配置 `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` 后，脚本会执行 `gradle assembleRelease`、用你的 keystore 签名并输出 `dist/Wikifactory-Editor-v1.1.8-android-release.apk`，同时打印证书 SHA-256 与产物 SHA-256。已有 APK 可以一步重签名：`node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.1.8-android.apk`。仓库不保存任何签名私钥，Release 中的 `-android.apk` 仍是 debug 签名，仅用于试用；长期分发请自行构建。
+- **共享内容规则模块**：路径 / frontmatter / 图标 / 日期等门禁规则抽取为 `app/assets/js/content-rules.js`（零依赖纯函数，`RULES_VERSION` 1.0.0），编辑器的预检（`validate.js`）与 Content、Core 两个仓库的门禁脚本使用同一份规则。Content 与 Core 各自 vendored 一份 `scripts/content-rules.mjs` + `content-rules.sha256`，CI 在跑门禁前先校验哈希。同步命令：`npm run rules:sync -- ../Wikifactory-Content`，检查：`npm run rules:check -- ../Wikifactory-Content`。任何一侧手改都会因哈希不一致而失败，避免三处规则漂移。
+- 版本号：**1.1.8**（Android versionCode 10）。
+
 ## v1.1.7 质量更新
 
 - **新建游戏 / 文件夹**：侧栏「页面位置」新增「新建游戏」按钮。填写游戏目录、分类、首个页面（可选标题）后会生成 `games/<游戏>/<分类>/<页面>.md`；文件夹会随该页面在 PR 中自动创建（Git 不保存空目录）。保留路径（`search` / `pagefind` / `_astro` / `404` / `about`）与非法名称会被拒绝。
@@ -65,28 +71,50 @@
 - **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
 - 版本号：**1.1.1**（Android versionCode 3）。
 
-## 下载（v1.1.7）
+## 下载（v1.1.8）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.1.7-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.7/Wikifactory-Editor-v1.1.7-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android | [Wikifactory-Editor-v1.1.7-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.7/Wikifactory-Editor-v1.1.7-android.apk) | debug 签名，可直接安装；Android 8.0+（minSdk 26） |
-| 网页版 | [Wikifactory-Editor-v1.1.7-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.7/Wikifactory-Editor-v1.1.7-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.1.8-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.8/Wikifactory-Editor-v1.1.8-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android | [Wikifactory-Editor-v1.1.8-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.8/Wikifactory-Editor-v1.1.8-android.apk) | 试用版，debug 签名；长期分发请用下方脚本以 release keystore 重签；Android 8.0+（minSdk 26） |
+| 网页版 | [Wikifactory-Editor-v1.1.8-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.1.8/Wikifactory-Editor-v1.1.8-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
-> APK 使用 Android debug 密钥签名，**不是**应用商店发布签名。若要长期分发并支持覆盖升级，请用自己的 release keystore 重新构建。
+> APK 使用 Android debug 密钥签名，**不是**应用商店发布签名。仓库不保存签名私钥；若要长期分发并支持覆盖升级，请用自己的 release keystore 执行 `npm run build:android:release`，或对现有 APK 执行 `node scripts/android-release.mjs --apk <file>`（见下方「Android 签名」）。
 >
 > exe 未做代码签名；首次运行若被 SmartScreen 拦截，选择「更多信息 → 仍要运行」即可。
+
+### Android 签名
+
+```bash
+# 1. 生成本地 keystore（不要提交到仓库）
+keytool -genkeypair -v -keystore release.jks -alias wikifactory \
+  -keyalg RSA -keysize 2048 -validity 10000
+
+# 2. 设置签名环境变量
+export ANDROID_KEYSTORE=$PWD/release.jks
+export ANDROID_KEYSTORE_PASSWORD='***'
+export ANDROID_KEY_ALIAS=wikifactory
+export ANDROID_KEY_PASSWORD='***'
+
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.1.8-android-release.apk）
+npm run build:android:release
+
+# 也可以只重签已有 APK（不重新构建）
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.1.8-android.apk
+```
+
+脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
 
 ### 校验和
 
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-7a52f23247bd730d2bcccac1965fd0ba38d7165b7a6bcaa48930f3016163324a  Wikifactory-Editor-v1.1.7-android.apk
-9182d62857345949a61e9887c298127225b1f10acce908a7405ee74c391bc014  Wikifactory-Editor-v1.1.7-windows-x64.exe
-8081c190a4fbc82561951fe2ae5ba4411f0c4c01502508f84f064bc068d187eb  Wikifactory-Editor-v1.1.7-web.zip
+3b3e6b5590f80574f03e3032ca2f2f234e39ce878e74a0945c82dc882e9c6cf7  Wikifactory-Editor-v1.1.8-android.apk
+3a943a688dfe732da6f79b74ec3a42c2b03c35c46317ff62e6bdcfe0d32fcdd3  Wikifactory-Editor-v1.1.8-windows-x64.exe
+383043a40dd9c511863bdd0e771daa701d59267ebcc41ed171afe42d3317756e  Wikifactory-Editor-v1.1.8-web.zip
 ```
 
 ## 功能
@@ -244,11 +272,11 @@ toc: true
 ```
 app/                 静态 Web 应用（无框架、离线可用）
   assets/css/        界面与 CodeMirror 主题样式
-  assets/js/         编辑器适配、Wiki 预览、校验、GitHub 客户端
+  assets/js/         编辑器适配、Wiki 预览、校验、共享内容规则、GitHub 客户端
   assets/vendor/     CodeMirror 6 bundle、marked、DOMPurify、Neutralino 客户端
 desktop/             Neutralinojs 桌面壳配置
 android/             Android WebView 壳（Gradle）
-scripts/             构建、vendor bundle 与自测脚本
+scripts/             构建、vendor bundle、共享规则同步、release 签名与自测脚本
 docs/screenshots/    README 截图
 dist/                交付产物（exe / apk / web zip）
 ```
@@ -267,9 +295,17 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.1.7-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.1.8-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
+
+# 共享内容规则（与 Wikifactory-Content / Wikifactory-Core 同源）
+npm run rules:hash                    # 打印当前共享规则的 sha256
+npm run rules:sync -- ../Wikifactory-Content   # 写入 content-rules.mjs + 校验和
+npm run rules:check -- ../Wikifactory-Content  # 校验副本是否被手改
+
+# Release 签名（需要 ANDROID_KEYSTORE 等环境变量，见「Android 签名」）
+npm run build:android:release
 ```
 
 桌面构建会在 `desktop/bin/` 缓存 Neutralinojs 二进制（已忽略），并通过 `neu build --release --embed-resources` 把全部资源嵌入 exe。
@@ -279,7 +315,7 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 ## 已知限制
 
 - 预览是按需快照，不是实时渲染；仓库中已有的图片显示文件名 / alt，点击后才按需加载（本次会话上传的图片可直接预览）。
-- Android 产物为 debug 签名；没有接入 Play Store / 自动更新。
+- Android Release 中的 APK 为 debug 签名（便于试用）；长期分发请按「Android 签名」用 release keystore 构建或重签。没有接入 Play Store / 自动更新。
 - Windows exe 依赖 WebView2 Runtime（Windows 10/11 通常自带）。
 - 编辑器仅访问 Content 仓库；如果未来需要恢复 Core/Alias，应作为独立应用或明确的新版本决策，而不是在当前版本中放开。
 - 若 GitHub 的 Content 仓库启用了 “Require branches to be up to date” 分支保护，仍需在仓库设置中关闭；编辑器侧本身不做该限制。
