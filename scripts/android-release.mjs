@@ -104,6 +104,7 @@ function sign(inputApk) {
     '--ks-key-alias', keyAlias,
     '--ks-pass', `env:ANDROID_KEYSTORE_PASSWORD`,
     '--key-pass', `env:ANDROID_KEY_PASSWORD`,
+    '--v4-signing-enabled', 'false',
     '--out', outFile,
     inputApk,
   ], { stdio: 'inherit', env: process.env });
