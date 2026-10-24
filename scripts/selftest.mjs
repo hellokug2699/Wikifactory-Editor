@@ -4,9 +4,11 @@ import {
   joinDocument, splitFrontmatter, setYamlField, frontmatterData,
   validateContentPath, validateWikiSyntax, validateDocument, validateWithRepo,
   validateFrontmatter, extractIconRefs, repositoryIconNames,
+  embedPageUrl, extractLinkRefs, repositoryLinkIndex, validateLinkTargets,
 } from '../app/assets/js/validate.js';
 import { APP_VERSION } from '../app/assets/js/state.js';
 import { buildPreview } from '../app/assets/js/markdown.js';
+import { diffLines, diffStats, collapsedDiff } from '../app/assets/js/diff.js';
 import {
   AUDIO_DIR, PAGE_TAGS, PAGE_TAG_VALUES, RESERVED_PATHS, audioFileName, audioNameProblem,
   embedTarget, nameProblem, parseAudioMarker, parseEmbedMarker, rulesMatchConfig,
@@ -247,6 +249,61 @@ test('audio availability matches the repository tree', () => {
     extraPaths: [`games/Satisfactory/${AUDIO_DIR}/missing.ogg`],
   });
   assert.equal(withPending.filter((item) => item.message.includes('音频文件不存在')).length, 0);
+});
+
+test('internal link targets are checked against the file tree (warnings only)', () => {
+  const repoPaths = [
+    'games/Satisfactory/Buildings/MAM.md',
+    'games/Satisfactory/Items/Iron-Plate.md',
+    'games/Factorio/Guides/Getting-Started.md',
+  ];
+  const index = repositoryLinkIndex(repoPaths);
+  assert.equal(index.ids.has('Satisfactory/Buildings/MAM'), true);
+  assert.equal(index.categoriesKey.has('satisfactory/buildings'), true);
+  assert.deepEqual(
+    extractLinkRefs('[[Satisfactory/Buildings/MAM|MAM]] [[#章节]] [[Audio/a.ogg]] [[File/x.png]]').map((ref) => ref.target),
+    ['Satisfactory/Buildings/MAM'],
+  );
+  assert.equal(validateLinkTargets('[[Satisfactory/Buildings/MAM]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
+  assert.equal(validateLinkTargets('[[Buildings]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
+  assert.equal(validateLinkTargets('[[Iron-Plate]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
+  assert.equal(validateLinkTargets('[[Getting-Started]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
+
+  const missing = validateLinkTargets('[[Satisfactory/Buildings/Unknown]]', { game: 'Satisfactory', linkIndex: index });
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].severity, 'warn');
+  assert.match(missing[0].message, /目标不存在/);
+
+  const bare = validateLinkTargets('[[No-Such-Page]]', { game: 'Satisfactory', linkIndex: index });
+  assert.equal(bare.length, 1);
+  assert.match(bare[0].message, /无法解析/);
+
+  const issues = validateWithRepo({
+    path: 'games/Satisfactory/Buildings/MAM.md',
+    body: '[[Satisfactory/Buildings/Unknown]]',
+    repoPaths,
+  });
+  assert.ok(issues.some((item) => item.severity === 'warn' && item.message.includes('站内链接目标不存在')));
+  assert.ok(issues.every((item) => item.severity !== 'error'));
+});
+
+test('embed fallback URLs point at the original provider page', () => {
+  assert.equal(embedPageUrl('youtube', 'dQw4w9WgXcQ'), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  assert.equal(embedPageUrl('bilibili', 'BV1xx411c7mD'), 'https://www.bilibili.com/video/BV1xx411c7mD');
+  assert.equal(embedPageUrl('bilibili', 'av12345'), 'https://www.bilibili.com/video/av12345');
+  assert.equal(embedPageUrl('vimeo', '123456789'), 'https://vimeo.com/123456789');
+  assert.equal(embedPageUrl('unknown', 'x'), '');
+});
+
+test('line diff reports additions, removals and collapsed context', () => {
+  const ops = diffLines('a\nb\nc\n', 'a\nB\nc\nd\n');
+  assert.deepEqual(diffStats(ops), { added: 2, removed: 1 });
+  assert.equal(ops.filter((op) => op.type === 'equal').length, 3);
+  const rows = collapsedDiff(ops, 1);
+  assert.ok(rows.some((row) => row.type === 'add' && row.text === 'd'));
+  assert.ok(rows.some((row) => row.type === 'del' && row.text === 'b'));
+  assert.deepEqual(diffStats(diffLines('same\n', 'same\n')), { added: 0, removed: 0 });
+  assert.equal(collapsedDiff(diffLines('same\n', 'same\n')).length, 0);
 });
 
 console.log(`\n${passed} tests passed.`);

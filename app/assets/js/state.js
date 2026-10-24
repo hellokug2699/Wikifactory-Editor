@@ -3,7 +3,7 @@
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
 /** Kept in sync with package.json by scripts/selftest.mjs. */
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.2.1';
 
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';
@@ -39,6 +39,8 @@ export function defaultState() {
       body: '',
       loadedSha: null,
       loadedPath: '',
+      loadedFmRaw: '',
+      loadedBody: '',
       ref: '',
       lastSaved: 0,
       editorTab: 'body',
@@ -82,6 +84,8 @@ function migrate(parsed) {
   }
   merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';
+  if (typeof merged.content?.loadedFmRaw !== 'string') merged.content.loadedFmRaw = merged.content?.fmRaw || '';
+  if (typeof merged.content?.loadedBody !== 'string') merged.content.loadedBody = merged.content?.body || '';
   if (!['light', 'dark', 'auto'].includes(merged.theme)) merged.theme = 'auto';
   return merged;
 }

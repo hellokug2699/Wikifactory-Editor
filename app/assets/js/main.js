@@ -9,7 +9,8 @@ import { CodeEditor, CURSOR } from './code-editor.js';
 import {
   AUDIO_EXTENSIONS, CALLOUTS, COLOR_TOKENS, EMBED_PROVIDERS, GAME_AUDIO_DIR, GAME_ICON_DIR,
   GAME_IMAGE_DIR, ICON_EXTENSIONS, ICON_SIZES, ICON_NAME_RE, PAGE_TAG_ISSUE_URL,
-  PAGE_TAG_VALUES, PAGE_TAGS, audioFileName, audioNameProblem, audioPathFor, embedTarget,
+  PAGE_TAG_VALUES, PAGE_TAGS, audioFileName, audioNameProblem, audioPathFor, embedPageUrl,
+  embedTarget,
   countCharacters, extractIconRefs, frontmatterData, gameOfPath, joinDocument,
   repositoryIconNames, setYamlField, splitFrontmatter, summarizeIssues, validateContentPath,
   validateDocument, validateWithRepo,
@@ -17,6 +18,7 @@ import {
 import { GitHubClient, GitHubError } from './github.js';
 import { clearToken, loadToken, saveToken, tokenStorageKind } from './secure-token.js';
 import { buildPreview, attachToc } from './markdown.js';
+import { diffLines, diffStats, collapsedDiff } from './diff.js';
 import {
   applyTheme, effectiveTheme, escape, initThemeWatcher,
   nextTheme, openModal, toast,
@@ -556,6 +558,40 @@ function collectIssues() {
 /** Cached repository file list used for gate-parity checks (icons, URL conflicts). */
 let repoIndex = null;
 
+const REPO_CACHE_KEY = 'wikifactory-editor:repo-tree:v1';
+const REPO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+function readRepoCache(ref) {
+  try {
+    const raw = localStorage.getItem(REPO_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.paths) || data.ref !== ref) return null;
+    if (Date.now() - Number(data.at || 0) > REPO_CACHE_TTL) return null;
+    return { ref: data.ref, paths: data.paths, at: Number(data.at) || 0, error: null, cached: true };
+  } catch {
+    return null;
+  }
+}
+
+function writeRepoCache(index) {
+  try {
+    localStorage.setItem(REPO_CACHE_KEY, JSON.stringify({
+      ref: index.ref,
+      paths: index.paths,
+      at: index.at,
+    }));
+  } catch {
+    // Quota / private mode: the in-memory index still works for this session.
+  }
+}
+
+/** Note shown next to checks that read the file tree from the offline cache. */
+function repoCacheNote(index = repoIndex) {
+  if (!index?.cached) return '';
+  return `本地缓存（${formatTime(index.at)}），可能过期`;
+}
+
 async function ensureRepoIndex({ force = false } = {}) {
   const ref = state.settings.branch || 'HEAD';
   const ttl = repoIndex?.error ? 60 * 1000 : 5 * 60 * 1000;
@@ -567,9 +603,14 @@ async function ensureRepoIndex({ force = false } = {}) {
       paths: tree.filter((item) => item.type === 'blob').map((item) => item.path),
       at: Date.now(),
       error: null,
+      cached: false,
     };
+    writeRepoCache(repoIndex);
   } catch (error) {
-    repoIndex = { ref, paths: null, at: Date.now(), error };
+    const cached = readRepoCache(ref);
+    repoIndex = cached
+      ? { ...cached, error }
+      : { ref, paths: null, at: Date.now(), error, cached: false };
   }
   return repoIndex;
 }
@@ -669,6 +710,8 @@ async function loadCurrentFile() {
     state.content.body = split.body.replace(/^\n+/, '');
     state.content.loadedSha = file.sha;
     state.content.loadedPath = path;
+    state.content.loadedFmRaw = split.raw;
+    state.content.loadedBody = split.body.replace(/^\n+/, '');
     state.content.ref = state.settings.branch || '';
     state.content.editorTab = 'body';
     els.contentPath.value = path;
@@ -752,6 +795,8 @@ function openNewGameDialog() {
         state.content.body = '';
         state.content.loadedSha = null;
         state.content.loadedPath = '';
+        state.content.loadedFmRaw = '';
+        state.content.loadedBody = '';
         state.content.ref = '';
         state.content.editorTab = 'body';
         state.content.lastSaved = 0;
@@ -989,7 +1034,7 @@ function loadPreviewAudio(el, pagePath) {
   const url = asset?.dataUrl || (game ? repoRawUrl(`games/${game}/${GAME_AUDIO_DIR}/${file}`) : '');
   if (!url) {
     el.classList.add('is-error');
-    if (hint) hint.textContent = '无法定位音频文件';
+    if (hint) hint.textContent = '无法定位音频文件：请确认页面位于 games/<游戏>/ 下';
     return;
   }
 
@@ -1011,12 +1056,34 @@ function loadPreviewAudio(el, pagePath) {
     caption.textContent = title;
     wrap.append(caption);
   }
+  const source = document.createElement('span');
+  source.className = 'wf-audio-source';
+  source.textContent = asset
+    ? `来源：本次待上传文件 · ${asset.path}`
+    : `来源：${game}/${GAME_AUDIO_DIR}/${file} · OGG`;
+  wrap.append(source);
   el.replaceWith(wrap);
 
   audio.addEventListener('loadedmetadata', () => wrap.classList.remove('is-loading'));
   audio.addEventListener('error', () => {
     wrap.classList.remove('is-loading');
     wrap.classList.add('is-error');
+    audio.remove();
+    const problem = document.createElement('span');
+    problem.className = 'wf-audio-error';
+    problem.textContent = asset
+      ? '音频无法播放：文件可能不是有效的 OGG。'
+      : `音频无法播放：文件不存在，或浏览器不支持 OGG。请确认 ${game}/${GAME_AUDIO_DIR}/${file}。`;
+    wrap.append(problem);
+    if (!asset) {
+      const link = document.createElement('a');
+      link.className = 'wf-audio-open';
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = '打开原文件';
+      wrap.append(link);
+    }
     toast(`无法加载音频：${file}`, 'error');
   });
 }
@@ -1816,12 +1883,13 @@ function openAudioDialog() {
     }
     const index = await ensureRepoIndex();
     if (seq !== statusSeq) return;
-    if (!index.paths) { statusEl.textContent = '无法读取仓库文件列表，提交前会再次检查。'; return; }
+    if (!index.paths) { statusEl.textContent = '无法读取仓库文件列表（可离线继续编辑，提交前会再次检查）。'; return; }
     const exists = repositoryAudioNames(index.paths, game).has(file);
+    const cacheNote = repoCacheNote(index) ? `；${repoCacheNote(index)}` : '';
     statusEl.style.color = exists ? 'var(--success)' : 'var(--danger)';
     statusEl.textContent = exists
-      ? `已在仓库中找到：${defaultPath(file)}`
-      : `仓库中不存在：${defaultPath(file)}（内容门禁会阻断，请上传或修正文件名）`;
+      ? `已在仓库中找到：${defaultPath(file)}${cacheNote}`
+      : `仓库中不存在：${defaultPath(file)}${cacheNote}（内容门禁会阻断，请上传或修正文件名）`;
   };
 
   fileInput.addEventListener('change', () => {
@@ -1900,6 +1968,32 @@ function openAudioDialog() {
   });
 }
 
+const EMBED_OEMBED = {
+  youtube: (id) => `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}&format=json`,
+  vimeo: (id) => `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(`https://vimeo.com/${id}`)}`,
+};
+
+/** Best-effort title lookup (CORS-enabled oEmbed); failures are silent. */
+async function fetchEmbedTitle(provider, id) {
+  const build = EMBED_OEMBED[provider];
+  if (!build) return '';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(build(id), {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return '';
+    const data = await response.json();
+    return typeof data?.title === 'string' ? data.title.trim() : '';
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function openEmbedDialog() {
   if (state.content.editorTab === 'frontmatter') { toast('请切换到正文。', 'info'); return; }
   const body = document.createElement('div');
@@ -1907,11 +2001,17 @@ function openEmbedDialog() {
   body.innerHTML = `
     <div class="form-grid">
       <div class="form-note is-accent">
-        粘贴播放器的<strong>原始页面链接</strong>（https），编辑器会转换为嵌入式播放器的短标记。
-        目前支持 ${escapeHtml(providers)}；正文语法为 <code>[[Embed/youtube/ID|标题]]</code>。
+        粘贴播放器的<strong>原始页面链接</strong>（https）。插入前会先显示识别结果（来源 / 视频 ID / 标题），
+        确认无误后再写入短标记。目前支持 ${escapeHtml(providers)}；正文语法为 <code>[[Embed/youtube/ID|标题]]</code>。
       </div>
       <label class="field"><span class="form-label">播放器链接</span>
         <input class="input mono" id="embed-url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label>
+      <div class="embed-recognized" id="embed-recognized" hidden>
+        <div class="embed-recognized-head">将嵌入：<strong id="embed-r-provider"></strong></div>
+        <div class="embed-recognized-row"><span>视频 ID</span><code id="embed-r-id"></code></div>
+        <div class="embed-recognized-row"><span>标题</span><span id="embed-r-title"></span></div>
+        <a class="embed-recognized-link" id="embed-r-link" target="_blank" rel="noopener noreferrer">打开原链接</a>
+      </div>
       <label class="field"><span class="form-label">标题（可选）</span>
         <input class="input" id="embed-title" placeholder="例如：官方预告片" autocomplete="off"></label>
       <p class="form-help" id="embed-status"></p>
@@ -1921,6 +2021,11 @@ function openEmbedDialog() {
   const urlInput = body.querySelector('#embed-url');
   const titleInput = body.querySelector('#embed-title');
   const statusEl = body.querySelector('#embed-status');
+  const card = body.querySelector('#embed-recognized');
+  const providerEl = body.querySelector('#embed-r-provider');
+  const idEl = body.querySelector('#embed-r-id');
+  const titleEl = body.querySelector('#embed-r-title');
+  const linkEl = body.querySelector('#embed-r-link');
 
   const escapeOption = (value) => value.replaceAll('|', '\\|').replaceAll(']', '\\]');
   const currentTarget = () => embedTarget(urlInput.value.trim());
@@ -1929,26 +2034,81 @@ function openEmbedDialog() {
     const title = titleInput.value.trim();
     return target ? `[[Embed/${target.value}${title ? `|${escapeOption(title)}` : ''}]]` : '';
   };
+
+  const titleCache = new Map();
+  let autoTitle = true;
+  let lookupSeq = 0;
+  let lookupTimer = 0;
+  let settingTitle = false;
+
+  const titleFor = (target) => titleCache.get(`${target.provider}/${target.id}`) || '';
+
+  const fetchTitleFor = (target) => {
+    if (!target || !EMBED_OEMBED[target.provider]) return;
+    const key = `${target.provider}/${target.id}`;
+    if (titleCache.has(key)) return;
+    clearTimeout(lookupTimer);
+    lookupTimer = setTimeout(async () => {
+      const seq = ++lookupSeq;
+      titleEl.textContent = '正在获取…';
+      const title = await fetchEmbedTitle(target.provider, target.id);
+      if (seq !== lookupSeq) return;
+      titleCache.set(key, title);
+      const current = currentTarget();
+      if (!current || `${current.provider}/${current.id}` !== key) return;
+      titleEl.textContent = title || '无法自动获取，可在下方手动填写';
+      if (title && autoTitle && !titleInput.value.trim()) {
+        settingTitle = true;
+        titleInput.value = title;
+        settingTitle = false;
+        refresh();
+      }
+    }, 350);
+  };
+
   const refresh = () => {
     const url = urlInput.value.trim();
     const target = currentTarget();
     const provider = target ? EMBED_PROVIDERS.find((item) => item.id === target.provider)?.label : '';
-    statusEl.style.color = target ? 'var(--success)' : url ? 'var(--danger)' : '';
-    statusEl.textContent = !url
-      ? '粘贴链接后会显示识别结果。'
-      : target
-        ? `已识别：${provider} → 写入 ${target.value}`
+    card.hidden = !target;
+    if (target) {
+      providerEl.textContent = provider;
+      idEl.textContent = target.id;
+      const cached = titleFor(target);
+      titleEl.textContent = cached || (EMBED_OEMBED[target.provider] ? '正在获取…' : '无法自动获取，可在下方手动填写');
+      linkEl.href = embedPageUrl(target.provider, target.id);
+      statusEl.style.color = 'var(--success)';
+      statusEl.textContent = `已识别：${provider} · 视频 ID ${target.id} · 将写入 ${target.value}`;
+      if (!cached) fetchTitleFor(target);
+    } else {
+      statusEl.style.color = url ? 'var(--danger)' : '';
+      statusEl.textContent = !url
+        ? '粘贴链接后会显示识别结果。'
         : '暂不支持该链接；目前支持 YouTube / 哔哩哔哩 / Vimeo 的 https 页面链接。';
+    }
     body.querySelector('#embed-preview').textContent = marker() || '（填写链接后生成标记）';
   };
-  urlInput.addEventListener('input', refresh);
-  titleInput.addEventListener('input', refresh);
+
+  urlInput.addEventListener('input', () => {
+    const previous = titleFor(currentTarget());
+    if (!previous && autoTitle) {
+      settingTitle = true;
+      titleInput.value = '';
+      settingTitle = false;
+    }
+    refresh();
+  });
+  titleInput.addEventListener('input', () => {
+    if (!settingTitle) autoTitle = false;
+    body.querySelector('#embed-preview').textContent = marker() || '（填写链接后生成标记）';
+  });
   refresh();
 
   const modal = openModal({
     title: '嵌入播放器',
-    subtitle: '[[Embed/https://…|标题]]',
+    subtitle: '[[Embed/youtube/ID|标题]]',
     body,
+    size: 'wide',
     footer: [
       { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
       { label: '插入', className: 'btn-primary', onClick: () => {
@@ -2683,6 +2843,69 @@ toc: true
 
 /* ------------------------------------------------------------------- PR */
 
+const PR_TYPES = [
+  { id: 'new', label: '新增页面', commitPrefix: 'content: 新增' },
+  { id: 'edit', label: '修改内容', commitPrefix: 'content: 更新' },
+  { id: 'fix', label: '修复引用', commitPrefix: 'content: 修复引用' },
+];
+
+function prTypeOf(id) {
+  return PR_TYPES.find((type) => type.id === id) || PR_TYPES[1];
+}
+
+/** Line diff between the content loaded from GitHub and the current editor state. */
+function buildPrDiff() {
+  const before = joinDocument(state.content.loadedFmRaw || '', state.content.loadedBody || '');
+  const after = assembleDocument();
+  const ops = diffLines(before, after);
+  const stats = diffStats(ops);
+  const rows = collapsedDiff(ops);
+  const html = rows.length
+    ? rows.map((row) => {
+      if (row.type === 'gap') {
+        return `<div class="diff-row diff-gap"><span class="diff-gutter"></span>… ${row.count} 行未显示 …</div>`;
+      }
+      const sign = row.type === 'add' ? '+' : row.type === 'del' ? '−' : ' ';
+      return `<div class="diff-row is-${row.type}">`
+        + `<span class="diff-num">${row.oldLine ?? ''}</span>`
+        + `<span class="diff-num">${row.newLine ?? ''}</span>`
+        + `<span class="diff-sign">${sign}</span>`
+        + `<code>${escapeHtml(row.text) || ' '}</code></div>`;
+    }).join('')
+    : '<p class="diff-empty">文档内容没有变化（可能只调整了路径或待上传资源）。</p>';
+  const pathNote = state.content.loadedPath && state.content.loadedPath !== state.content.path
+    ? `<p class="form-help">路径变更：<code>${escapeHtml(state.content.loadedPath)}</code> → <code>${escapeHtml(state.content.path)}</code>；差异仅比较文档内容。</p>`
+    : '';
+  return { stats, html, pathNote };
+}
+
+/** Lightweight PR template generated on the editor side (no repository config). */
+function buildPrBody({ type, note, path, assetPaths, summary, diff }) {
+  const preset = prTypeOf(type);
+  return [
+    '## 变更类型',
+    '',
+    `- [x] ${preset.label}`,
+    '',
+    '## 说明',
+    '',
+    note || '（待填写）',
+    '',
+    '## 变更文件',
+    '',
+    `- \`${path}\``,
+    ...assetPaths.map((asset) => `- \`${asset}\`（新增 / 更新资源）`),
+    '',
+    '## 自查',
+    '',
+    `- [x] 编辑器检查：${summary.errors} 错误，${summary.warnings} 警告`,
+    `- [x] 内容差异：+${diff.added} / −${diff.removed} 行`,
+    '- [ ] 已在预览中确认排版',
+    '',
+    '由 Wikifactory Editor 提交。Content 仓库不要求分支与 base 保持 up-to-date。',
+  ].join('\n');
+}
+
 async function openPrDialog({ prefill = null } = {}) {
   await tokenReady;
   if (!sessionToken) {
@@ -2710,7 +2933,9 @@ async function openPrDialog({ prefill = null } = {}) {
     return;
   }
   if (!repoIndex?.paths) {
-    toast('无法读取 Content 仓库文件列表，本次仅执行本地规则检查（图标存在性 / URL 冲突未校验）。', 'info', 4600);
+    toast('无法读取 Content 仓库文件树，本次仅执行本地规则检查（图标 / 音频 / 站内链接存在性未校验）。可以先保存草稿，网络恢复后再提交。', 'info', 5600);
+  } else if (repoIndex.cached) {
+    toast(`网络不可用，使用${repoCacheNote(repoIndex)}的文件树；存在性校验仅供参考。`, 'info', 5200);
   }
   lastIssues = issues;
   issuesStale = false;
@@ -2723,20 +2948,27 @@ async function openPrDialog({ prefill = null } = {}) {
   }
 
   const targetAssets = assets.map((asset) => asset.path);
+  const diff = buildPrDiff();
+  const pageTitle = frontmatterData(state.content.fmRaw).title || stripExt(basename(path));
+  const typeDefault = prefill?.prType || (state.content.loadedSha ? 'edit' : 'new');
+  const typePreset = prTypeOf(typeDefault);
+  const noteDefault = prefill?.prNote || '';
   const branchDefault = prefill?.branchName || `wfe/${slugify(stripExt(basename(path)))}-${new Date().toISOString().slice(5, 16).replace(/[-:T]/g, '')}`;
-  const data = frontmatterData(state.content.fmRaw);
-  const titleDefault = prefill?.prTitle || `content: ${data.title || stripExt(basename(path))}`;
-  const commitDefault = prefill?.commitMessage || `content: 更新 ${path}`;
-  const prBodyDefault = prefill?.prBody || [
-    '由 Wikifactory Editor 提交。',
-    '',
-    '变更文件：',
-    `- \`${path}\``,
-    ...targetAssets.map((asset) => `- \`${asset}\`（新增 / 更新图片）`),
-    '',
-    `校验：${summary.errors} 错误，${summary.warnings} 警告。`,
-    'Content 仓库不要求分支与 base 保持 up-to-date。',
-  ].join('\n');
+  const titleDefault = prefill?.prTitle || `${typePreset.commitPrefix} ${pageTitle}`;
+  const commitDefault = prefill?.commitMessage || `${typePreset.commitPrefix} ${pageTitle}`;
+  const prBodyDefault = prefill?.prBody || buildPrBody({
+    type: typeDefault,
+    note: noteDefault,
+    path,
+    assetPaths: targetAssets,
+    summary,
+    diff: diff.stats,
+  });
+  const cacheNotice = repoIndex?.cached
+    ? `<div class="form-note is-warn">离线 / 弱网：文件树来自${escapeHtml(repoCacheNote(repoIndex))}，图标 / 音频 / 站内链接校验可能已过期。网络恢复后重新打开本窗口即可刷新。</div>`
+    : !repoIndex?.paths
+      ? '<div class="form-note is-warn">无法读取仓库文件树：本次仅执行本地规则检查。可以先保存草稿，网络恢复后再提交。</div>'
+      : '';
 
   const body = document.createElement('div');
   body.innerHTML = `
@@ -2744,24 +2976,61 @@ async function openPrDialog({ prefill = null } = {}) {
       <div class="pr-summary">
         <div class="pr-summary-row"><span>目标仓库</span><span>${CONTENT_OWNER}/${CONTENT_REPO}</span></div>
         <div class="pr-summary-row"><span>目标分支</span><span>${escapeHtml(state.settings.branch || '默认分支')}</span></div>
-        <div class="pr-summary-row"><span>文件</span><span>${escapeHtml(path)}${targetAssets.length ? `<br>+ ${targetAssets.length} 个图片` : ''}</span></div>
+        <div class="pr-summary-row"><span>文件</span><span>${escapeHtml(path)}${targetAssets.length ? `<br>+ ${targetAssets.length} 个资源` : ''}</span></div>
         <div class="pr-summary-row"><span>账号</span><span>${escapeHtml(connection.login || '待验证')}</span></div>
       </div>
       <div class="form-note is-accent">
         Content 仓库不设置必须 up-to-date：提交分支会从最新 main 创建，无需手动同步。
         所有请求仅在客户端发往 GitHub API。
       </div>
-      <div class="form-note">
-        分支名完全由你决定，编辑器不会自动改名。若分支名已被其他贡献者占用，会弹出错误窗口要求你更换。
-      </div>
+      ${cacheNotice}
+      ${formField('变更类型', `<select class="input" id="pr-type">${PR_TYPES.map((type) => `
+        <option value="${type.id}" ${type.id === typeDefault ? 'selected' : ''}>${escapeHtml(type.label)}</option>`).join('')}</select>`, '切换类型会重新生成提交信息、PR 标题与说明模板。')}
+      ${formField('说明（必填）', `<textarea class="input" id="pr-note" rows="3" placeholder="例如：补充 MAM 建筑的解锁条件与材料清单">${escapeHtml(noteDefault)}</textarea>`, '会写入 PR 说明的「说明」小节，减少维护者 review 时的信息缺失。')}
+      <details class="diff-box" open>
+        <summary>内容差异预览 · <span class="diff-added">+${diff.stats.added}</span> <span class="diff-removed">−${diff.stats.removed}</span> 行
+          ${state.content.loadedPath ? '' : '（新建页面：全部为新增）'}</summary>
+        ${diff.pathNote}
+        <div class="diff-view">${diff.html}</div>
+      </details>
       ${formField('分支设置 · 分支名', `<input class="input mono" id="pr-branch" value="${escapeHtml(branchDefault)}" autocomplete="off">`, '分支创建在 Content 仓库或你的 Fork 上；编辑器不会自动追加后缀。')}
       ${formField('提交信息', `<input class="input" id="pr-commit" value="${escapeHtml(commitDefault)}" autocomplete="off">`)}
       ${formField('PR 标题', `<input class="input" id="pr-title" value="${escapeHtml(titleDefault)}" autocomplete="off">`)}
-      ${formField('PR 说明', `<textarea class="input" id="pr-body" rows="6">${escapeHtml(prBodyDefault)}</textarea>`)}
+      ${formField('PR 说明（自动模板，可修改）', `<textarea class="input" id="pr-body" rows="10">${escapeHtml(prBodyDefault)}</textarea>`, '修改变更类型或说明时会重新生成模板；之后仍可手动调整。')}
       <label class="check-row"><input type="checkbox" id="pr-draft" ${prefill?.draft ? 'checked' : ''}><span>创建为 Draft PR</span></label>
       <div class="progress-log" id="pr-log" hidden></div>
     </div>
   `;
+
+  const typeSelect = body.querySelector('#pr-type');
+  const noteInput = body.querySelector('#pr-note');
+  const commitInput = body.querySelector('#pr-commit');
+  const titleInput = body.querySelector('#pr-title');
+  const prBodyInput = body.querySelector('#pr-body');
+  const regenerate = () => {
+    const preset = prTypeOf(typeSelect.value);
+    commitInput.value = `${preset.commitPrefix} ${pageTitle}`;
+    titleInput.value = `${preset.commitPrefix} ${pageTitle}`;
+    prBodyInput.value = buildPrBody({
+      type: typeSelect.value,
+      note: noteInput.value.trim(),
+      path,
+      assetPaths: targetAssets,
+      summary,
+      diff: diff.stats,
+    });
+  };
+  typeSelect.addEventListener('change', regenerate);
+  noteInput.addEventListener('input', () => {
+    prBodyInput.value = buildPrBody({
+      type: typeSelect.value,
+      note: noteInput.value.trim(),
+      path,
+      assetPaths: targetAssets,
+      summary,
+      diff: diff.stats,
+    });
+  });
 
   const modal = openModal({
     title: '提交 Pull Request',
@@ -2770,12 +3039,19 @@ async function openPrDialog({ prefill = null } = {}) {
     size: 'wide',
     footer: [
       { label: '取消', className: 'btn-ghost', onClick: () => modal.close() },
+      { label: '保存草稿', className: 'btn-ghost', onClick: () => { modal.close(); saveDraft(true); } },
       { label: '创建 PR', className: 'btn-primary', onClick: async () => {
         const branchName = body.querySelector('#pr-branch').value.trim();
         const commitMessage = body.querySelector('#pr-commit').value.trim();
+        const prNote = body.querySelector('#pr-note').value.trim();
         const prTitle = body.querySelector('#pr-title').value.trim();
         const prBody = body.querySelector('#pr-body').value.trim();
         const draft = body.querySelector('#pr-draft').checked;
+        if (!prNote) {
+          toast('请填写「说明」（必填）：简要描述本次新增 / 修改 / 修复了什么。', 'error', 4600);
+          noteInput.focus();
+          return;
+        }
         if (!branchName || !commitMessage || !prTitle) {
           toast('请填写分支名、提交信息与 PR 标题。', 'error');
           return;
@@ -2853,12 +3129,23 @@ async function openPrDialog({ prefill = null } = {}) {
           const branchConflict = error instanceof GitHubError
             && (error.code === 'BRANCH_EXISTS' || (error.status === 422 && /已存在|exists/i.test(error.message)));
           if (branchConflict) {
-            const snapshot = { branchName, commitMessage, prTitle, prBody, draft };
+            const snapshot = {
+              branchName,
+              commitMessage,
+              prNote,
+              prType: typeSelect.value,
+              prTitle,
+              prBody,
+              draft,
+            };
             modal.close();
             openBranchConflictDialog({ branchName, snapshot, message: error.message });
             return;
           }
           log(`失败：${error.message}`, 'err');
+          if (error instanceof GitHubError && error.status === 0) {
+            log('提示：可以先点击「保存草稿」保留本次修改，等网络恢复后再提交。', 'step');
+          }
           modal.setBusy(false);
           toast(error.message || '提交失败。', 'error');
           if (error instanceof GitHubError && error.status === 401) {

@@ -48,7 +48,9 @@ export class GitHubClient {
   }
 
   async request(path, options = {}) {
-    const { method = 'GET', body, accept = 'application/vnd.github+json' } = options;
+    const {
+      method = 'GET', body, accept = 'application/vnd.github+json', timeout = 20000,
+    } = options;
     const headers = {
       Accept: accept,
       'X-GitHub-Api-Version': '2022-11-28',
@@ -56,21 +58,29 @@ export class GitHubClient {
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
     let response;
     try {
       response = await fetch(path.startsWith('http') ? path : `${API}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
       });
     } catch (error) {
+      clearTimeout(timer);
+      const aborted = error?.name === 'AbortError';
       throw new GitHubError(
-        `无法连接 GitHub API：${error instanceof Error ? error.message : String(error)}。请检查网络或代理设置。`,
+        aborted
+          ? `请求 GitHub API 超时（${Math.round(timeout / 1000)} 秒）。网络较弱时请稍后重试，或先保存本地草稿。`
+          : `无法连接 GitHub API：${error instanceof Error ? error.message : String(error)}。请检查网络或代理设置。`,
         0,
       );
     }
 
     const text = await response.text();
+    clearTimeout(timer);
     let data = null;
     if (text) {
       try { data = JSON.parse(text); } catch { data = { message: text }; }

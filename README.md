@@ -6,6 +6,17 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.2.1 质量更新
+
+- **音频 / 嵌入的来源说明与降级提示**：预览中的嵌入块会显示「来源：YouTube · youtube/ID」以及「若无法播放，请点此打开原链接」；音频加载失败时会明确说明可能的原因（文件不存在 / 浏览器不支持 OGG），并提供「打开原文件」入口，而不是只显示一个空白的播放器。
+- **嵌入链接「粘贴即预览」**：粘贴完整链接后，对话框先显示识别结果（来源、视频 ID、可获取的标题）与原链接，编辑者确认后再转换为短标记 `[[Embed/youtube/ID|标题]]`，避免粘错链接后手动改标记。YouTube / Vimeo 标题通过官方 oEmbed 读取，失败时可手动填写。
+- **离线 / 弱网体验**：Content 仓库文件树会缓存在本机（7 天，按分支区分）。网络不可用或请求超时时，图标 / 音频 / 站内链接校验会回退到缓存，并在相关窗口标注「基于本地缓存，可能过期」；PR 窗口新增「保存草稿」，可先保留修改，等网络恢复后再提交。GitHub API 请求新增 20 秒超时，避免弱网下无限等待。
+- **PR 模板与提交信息规范**：PR 窗口新增「变更类型（新增页面 / 修改内容 / 修复引用）」与必填「说明」，提交信息、PR 标题与 PR 说明按模板自动生成，仍可手动调整。模板完全由编辑器侧生成，不依赖仓库配置。
+- **站内链接目标校验**：复用文件树把 `[[页面|显示文字]]` 的目标解析到真实页面 / 游戏 / 分类 / 文件名；缺失时给出警告（不阻断提交，目标可能是有意提前占位或使用别名）。
+- **内容差异预览**：PR 窗口展示「加载时的原始内容 vs 当前编辑内容」的行级差异（+ / − 行数、上下文折叠、路径变更提示），帮助贡献者在提交前自查。
+- **README 更新日志精简**：历史版本移至 [CHANGELOG.md](CHANGELOG.md)，README 只保留最近几个版本，降低新用户的信息负担。
+- 版本号：**1.2.1**（Android versionCode 13）。
+
 ## v1.2.0 功能更新
 
 - **音频插入（仅 OGG）**：工具栏新增「音频」。语法为 `[[Audio/名称.ogg|标题]]`，文件放在 `games/<游戏>/assets/audio/`，标题可省略。对话框只接受 `.ogg`，可随 PR 上传；编辑器预检、Content/Core 门禁都会校验扩展名与文件是否存在。预览先显示占位块，点击后才加载播放器。
@@ -23,79 +34,16 @@
 - **Release 标题约定**：Release 页面标题统一为 `Wikifactory Editor vX.Y.Z`。
 - 版本号：**1.1.9**（Android versionCode 11）。
 
-## v1.1.8 质量更新
+> 更早的版本记录（v1.1.1 – v1.1.8）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
 
-- **Release 签名与一键重签名**：新增 `scripts/android-release.mjs`（`npm run build:android:release`）。配置 `ANDROID_KEYSTORE` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` 后，脚本会执行 `gradle assembleRelease`、用你的 keystore 签名并输出 `dist/Wikifactory-Editor-v1.2.0-android-release.apk`，同时打印证书 SHA-256 与产物 SHA-256。已有 APK 可以一步重签名：`node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.0-android.apk`。仓库不保存任何签名私钥，Release 中的 `-android.apk` 仍是 debug 签名，仅用于试用；长期分发请自行构建。
-- **共享内容规则模块**：路径 / frontmatter / 图标 / 日期等门禁规则抽取为 `app/assets/js/content-rules.js`（零依赖纯函数，`RULES_VERSION` 1.0.0），编辑器的预检（`validate.js`）与 Content、Core 两个仓库的门禁脚本使用同一份规则。Content 与 Core 各自 vendored 一份 `scripts/content-rules.mjs` + `content-rules.sha256`，CI 在跑门禁前先校验哈希。同步命令：`npm run rules:sync -- ../Wikifactory-Content`，检查：`npm run rules:check -- ../Wikifactory-Content`。任何一侧手改都会因哈希不一致而失败，避免三处规则漂移。
-- 版本号：**1.1.8**（Android versionCode 10）。
-
-## v1.1.7 质量更新
-
-- **新建游戏 / 文件夹**：侧栏「页面位置」新增「新建游戏」按钮。填写游戏目录、分类、首个页面（可选标题）后会生成 `games/<游戏>/<分类>/<页面>.md`；文件夹会随该页面在 PR 中自动创建（Git 不保存空目录）。保留路径（`search` / `pagefind` / `_astro` / `404` / `about`）与非法名称会被拒绝。
-- **修复退出行为切换不生效**：设置中的「退出行为」现在**选择后立即持久化**，无需再点「保存设置」；此前若选好默认值又直接关闭设置窗口，退出时仍沿用旧行为。提示窗口也会显示当前默认选项。
-- **启动时询问是否恢复**：不再静默打开上次页面。检测到草稿时弹出「恢复上次编辑的页面？」，显示路径 / 标题 / 草稿时间 / 字数，可选择「恢复草稿」或「新建空白页」（清空草稿并回到默认路径）。启动检查更新会等该窗口关闭后再执行，不会抢占弹窗。
-- 版本号：**1.1.7**（Android versionCode 9）。
-
-## v1.1.6 质量更新
-
-- **token 默认不保存**：「记住 token」默认关闭，token 只留在内存；需要自动恢复时由用户显式勾选（仍为加密存储）。
-- **token 权限预检**：设置中的「测试连接」会读取经典 token 的 `x-oauth-scopes`，并结合仓库 `permissions.push` 与 Fork 状态，明确显示「写权限 / 只读 / 无法确认」。只读时直接提示无法提交 PR 及需要补充的权限。
-- **首次提交前确认**：第一次提交 PR 前弹出权限确认窗口（账号、权限头、上游写权限、Fork 状态、所需权限），确认后不再重复；只读 token 会被拦下。
-- **预览图片按需加载**：仓库已有图片不再只是占位块——占位块显示文件名与 alt，点击后才从 `raw.githubusercontent.com` 请求该图片；加载失败会明确提示，便于校对引用。
-- **分支名冲突一键建议**：冲突窗口预填「内容页-日期-短哈希」建议名，并提供「换一个建议」；可直接采纳后重试。
-- **行号栏可配置**：新增「行号栏：自动（移动端隐藏）/ 始终显示 / 始终隐藏」，底部状态栏始终显示「行 当前/总行数，列」。
-- 版本号：**1.1.6**（Android versionCode 8）。
-
-## v1.1.5 质量更新
-
-- **隐藏 Android 状态栏**：设置页新增「隐藏 Android 系统状态栏（沉浸显示）」，仅 Android 应用可见；使用 `WindowInsetsController`（API 30+）或全屏标志（API 26–29）隐藏状态栏，滑动顶部可临时呼出。设置会持久化并在每次启动时恢复。
-- **修复移动端「退出应用」无效**：Android WebView 也加载了 Neutralino 兼容脚本，`Neutralino.app.exit` 抢先执行但并无原生进程可退。现在优先调用 Android 桥接 `exitApp`（`finishAndRemoveTask` + `finishAffinity`），桌面端仍走 Neutralino，纯浏览器环境会明确提示「无法自动关闭窗口」，不再静默无反应。
-- 版本号：**1.1.5**（Android versionCode 7）。
-
-## v1.1.4 功能修复
-
-- **资源目录按类型区分**：正文大图上传到 `games/<游戏>/assets/images/`，`[icon=…]` 内联图标上传到 `games/<游戏>/assets/icons/`。图标对话框新增文件上传与路径校验，不再出现"图标建议放 images"的误导。
-- **图标存在性校验**：插入图标时先读取 Content 仓库文件树，确认 `assets/icons/<名称>.<ext>` 是否存在；缺失会阻断插入并提示应先上传。待上传的图标计入本次 PR，不会误报。
-- **本地对齐内容门禁**：新增与 `scripts/validate-content.mjs` 同构的检查——路径层级、frontmatter 类型（含 `null`、ISO 日期、字符串数组元素）、`[icon=]` 文件存在性、重复 URL（`.md` / `.mdx`）与大小写冲突；提交 PR 前会强制刷新仓库文件树重新校验，问题在本地暴露而不是等 CI。
-- 校验失败时仍会展示具体文件与行号（如 `games/<游戏>/assets/icons/xxx.svg`），可直接跳到对应行修改。
-- 版本号：**1.1.4**（Android versionCode 6）。
-
-## v1.1.3 功能更新
-
-- **启动检查更新**：每次启动通过 GitHub API 读取编辑器仓库的最新 Release，仅提示版本与说明，**不自动下载**；设置页可关闭，也可以在提示窗口中勾选「不再在启动时检查更新」。
-- **CONTRIBUTING.md 联动**：帮助、设置与移动端菜单新增「Content 使用须知」，直接读取 `Wikifactory-Content/CONTRIBUTING.md` 并在应用内渲染（相对链接自动转为 GitHub 地址）；读取失败时给出 GitHub 直达链接。
-- **退出提示**：退出时若本次会话有修改，提示「保存并退出 / 不保存退出 / 取消」；保存后下次启动恢复，不保存则回到进入程序时的内容。可在设置 →「退出行为」选择「每次询问 / 总是保存 / 不保存直接退出」，提示窗口内也会说明该入口。
-- Android 返回键同样会走退出确认；桌面版与网页版在直接关闭窗口时由 `beforeunload` 按同一设置处理。
-- 版本号：**1.1.3**（Android versionCode 5）。
-- 注意：本次 APK 由新的 Android debug 密钥签名，指纹与 1.1.2 不同；若覆盖安装失败，请先卸载旧版再安装。
-
-## v1.1.2 功能修复
-
-- **允许粘贴**：token 输入框仍禁止复制 / 剪切 / 拖拽，但支持 `Ctrl/⌘+V`、右键菜单与移动端长按粘贴（1.1.1 一并屏蔽了右键菜单，导致部分设备无法粘贴）。
-- **记住 token**：新增「记住 token」选项（1.1.6 起默认关闭），token 加密保存在本机，下次启动自动恢复并验证，无需每次重新填写。
-- **加密存储，而非明文**：token 必须先恢复才能使用，单向哈希无法满足自动登录，因此采用可逆加密：
-  - Android：AES-GCM 密钥生成在 **Android Keystore** 内，密钥不可导出；磁盘上只有密文。
-  - 网页 / Windows：WebCrypto **AES-256-GCM**，密钥由安装标识与设备特征经 PBKDF2（21 万次）派生，localStorage 中只有密文与随机 IV。
-  - 关闭「记住 token」后仍为仅内存模式；旧版本的明文 token 会在启动时被清除。
-- 版本号：**1.1.2**（Android versionCode 4）。
-
-## v1.1.1 安全更新
-
-- **token 不落盘**：只保存在当前运行内存，不写入 localStorage / 文件；关闭应用即失效。旧版本遗留的本地 token 会在启动时被清除。
-- **禁止显示与复制**：token 输入框保持 password，移除「显示」按钮，并阻止复制、剪切、右键菜单与拖拽。
-- **完整 token 指南**：设置页新增从创建 token 到测试连接的完整步骤，并明确说明公开仓库不等于可推送，绝大多数贡献者必须通过 Fork 提交。
-- **分支名冲突处理**：编辑器不再自动追加后缀；若分支名被其他人占用，会弹出错误窗口要求更换，并保留已填写的提交信息。
-- **自动删除已合并分支**：新增 GitHub Actions workflow，合并后删除本仓库中的 head 分支；Fork 分支需贡献者在自己的 Fork 中删除。
-- 版本号：**1.1.1**（Android versionCode 3）。
-
-## 下载（v1.2.0）
+## 下载（v1.2.1）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.2.0-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.0/Wikifactory-Editor-v1.2.0-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android（签名） | [Wikifactory-Editor-v1.2.0-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.0/Wikifactory-Editor-v1.2.0-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
-| Android（试用） | [Wikifactory-Editor-v1.2.0-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.0/Wikifactory-Editor-v1.2.0-android.apk) | debug 签名，仅用于试用；与签名版的证书不同，不能互相覆盖 |
-| 网页版 | [Wikifactory-Editor-v1.2.0-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.0/Wikifactory-Editor-v1.2.0-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.2.1-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android（签名） | [Wikifactory-Editor-v1.2.1-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
+| Android（试用） | [Wikifactory-Editor-v1.2.1-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-android.apk) | debug 签名，仅用于试用；与签名版的证书不同，不能互相覆盖 |
+| 网页版 | [Wikifactory-Editor-v1.2.1-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -116,11 +64,11 @@ export ANDROID_KEYSTORE_PASSWORD='***'
 export ANDROID_KEY_ALIAS=wikifactory
 export ANDROID_KEY_PASSWORD='***'
 
-# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.0-android-release.apk）
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.1-android-release.apk）
 npm run build:android:release
 
 # 也可以只重签已有 APK（不重新构建）
-node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.0-android.apk
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.1-android.apk
 ```
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
@@ -150,13 +98,12 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.0-android.ap
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-442914929671ffa78bc045efc0447938bc76d4f3617d82859e8d687f72df55ce  Wikifactory-Editor-v1.2.0-android-release.apk
-425e29269d5529b13e067cf62c35ba2e2505ada95436d16169171ea1f9b0b7e2  Wikifactory-Editor-v1.2.0-android.apk
-fb22deefb9058b59700068739e5880c539c63398eaacc804afdb2d0a80b1978b  Wikifactory-Editor-v1.2.0-windows-x64.exe
-217b3aaf960457f616a4ec03fb161dcf687dccf9196492bd7fba1b76bd53c521  Wikifactory-Editor-v1.2.0-web.zip
+020ceeed3c33c37a0f4f4b27cb9a6ac852de6717a030276e2922e0f9103117b0  Wikifactory-Editor-v1.2.1-android.apk
+6649ed6d209f3f1e3d590e9567496624065d67c53c6138af8101dd300ac49909  Wikifactory-Editor-v1.2.1-web.zip
+7943b165221bdfc4ea16cc14ce941bbe8eef4e6c87205151310712aeb7639267  Wikifactory-Editor-v1.2.1-windows-x64.exe
 ```
 
-签名版 APK 由 CI 在发布 Release 后附加；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
+签名版 APK 由 CI 在发布 Release 后附加（其 SHA-256 会同步更新到 `dist/SHA256SUMS.txt`）；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
 
 ## 功能
 
@@ -182,8 +129,8 @@ fb22deefb9058b59700068739e5880c539c63398eaacc804afdb2d0a80b1978b  Wikifactory-Ed
 - 页面路径校验：`games/<游戏>/<分类>/…/<页面>.md`；拦截保留路径、非法字符、扩展名大小写等问题。
 - frontmatter 表单：`title` / `description` / `tags` / `order` / `draft` / `updated` / `toc`，保留未知字段与注释；排序 / 日期 / 草稿 / 目录收进可折叠的「更多选项」。
 - 页面分类（`tags`）使用模板 chip 选择，未知分类会在本地预检与内容门禁中被拒绝；新增分类请走 issue 模板。
-- 音频插入：仅支持 `.ogg`，语法 `[[Audio/名称.ogg|标题]]`，文件放在 `games/<游戏>/assets/audio/`；可随 PR 上传，预览点击后加载。
-- 嵌入播放器：语法 `[[Embed/youtube/ID|标题]]`，编辑器接收 YouTube / 哔哩哔哩 / Vimeo 的完整链接并转换为短标记；其他来源会被门禁拒绝。
+- 音频插入：仅支持 `.ogg`，语法 `[[Audio/名称.ogg|标题]]`，文件放在 `games/<游戏>/assets/audio/`；可随 PR 上传，预览点击后加载并显示来源与失败原因。
+- 嵌入播放器：语法 `[[Embed/youtube/ID|标题]]`，粘贴完整链接后先显示来源 / 视频 ID / 标题供确认，再转换为短标记；预览中显示来源与「打开原链接」降级入口；其他来源会被门禁拒绝。
 - 一键格式：粗体插入 `****` 并把光标放在中间；斜体、删除线、行内代码同理；支持标题、引用、列表、任务列表、代码块、标准 Markdown 链接。
 - 表格生成器：任意数据行数 × 列数（1–50 × 1–12）、表头、对齐、紧凑格式、**自定义单元格填充模板**（`{r}` / `{c}` / `{r0}` / `{c0}`）与高级源码模板。
 - 图片插入：任意图片格式；可选 Wiki `[[File/…]]`、标准 Markdown `![]()` 或自定义模板；可随 PR 上传到 `games/<游戏>/assets/images/`。
@@ -193,16 +140,19 @@ fb22deefb9058b59700068739e5880c539c63398eaacc804afdb2d0a80b1978b  Wikifactory-Ed
 
 ### 按需预览（非实时）
 
-预览按钮或 `Ctrl+Enter` 生成快照；支持桌面 / 手机宽度、页内目录、亮暗主题、横幅、表格颜色、Wiki 图片、图标与站内链接。本次会话上传的图片可直接预览；仓库已有图片显示文件名与 alt 占位，点击后才按需加载（不预取）。
+预览按钮或 `Ctrl+Enter` 生成快照；支持桌面 / 手机宽度、页内目录、亮暗主题、横幅、表格颜色、Wiki 图片、图标、音频与嵌入播放器、站内链接。本次会话上传的图片 / 音频可直接预览；仓库已有图片显示文件名与 alt 占位，点击后才按需加载（不预取）。嵌入块显示来源标识与「若无法播放，请点此打开原链接」；音频加载失败会给出原因与「打开原文件」入口。
 
 ### GitHub PR（纯客户端）
 
-- token **默认只保留在内存**；勾选「记住 token」后加密保存在本机（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复并验证。所有请求直接发往 `https://api.github.com`。
+- token **默认只保留在内存**；勾选「记住 token」后加密保存在本机（Android Keystore / 其他平台 AES-256-GCM），启动时自动恢复并验证。GitHub 请求直接发往 `https://api.github.com`；嵌入标题查询只访问 YouTube / Vimeo 的 oEmbed 接口，不携带 token。
 - 目标仓库**硬编码**为 `hellokug2699/Wikifactory-Content`；设置中没有仓库输入框，网络层也会拒绝其他仓库名。
 - 有写权限时直接从最新 base 创建临时分支并提交；没有写权限时自动 Fork → 同步 Fork → 向 Content 仓库发起 PR。
-- 一次 PR 可同时提交正文与多张图片；支持 Draft PR、自定义分支名 / 提交信息 / PR 标题与说明。
+- 一次 PR 可同时提交正文与多个图片 / 音频；支持 Draft PR、自定义分支名 / 提交信息 / PR 标题与说明。
+- **PR 模板**：变更类型（新增页面 / 修改内容 / 修复引用）+ 必填说明；提交信息、PR 标题与 PR 说明自动带出模板，仍可手动修改。
+- **内容差异预览**：PR 窗口展示加载时的原始内容与当前编辑内容的行级差异（+ / − 行数、上下文折叠、路径变更提示）。
+- **离线 / 弱网**：文件树缓存在本机（7 天，按分支区分）；GitHub 请求 20 秒超时；网络不可用时存在性校验回退到缓存并标注「可能过期」，PR 窗口可先「保存草稿」。
 - **分支名由用户保留**：编辑器不会自动追加后缀；若分支名被占用，冲突窗口会给出「内容页-日期-短哈希」建议名并支持一键更换。
-- **提交前本地门禁**：进入 PR 前会刷新 `Wikifactory-Content` 的文件树，执行路径层级、frontmatter 类型、`[icon=]` 图标存在性、重复 URL / 大小写冲突检查；有错误时阻断提交，并给出具体文件与行号。
+- **提交前本地门禁**：进入 PR 前会刷新 `Wikifactory-Content` 的文件树，执行路径层级、frontmatter 类型、`[icon=]` 图标 / `[[Audio/…]]` 音频存在性、重复 URL / 大小写冲突检查；有错误时阻断提交，并给出具体文件与行号。`[[页面]]` 目标缺失只给警告，不阻断。
 - **Content 仓库不要求分支 up-to-date**：编辑器不检查也不阻塞；每次从最新 base 创建分支。
 - 成功后显示 PR 链接，可复制链接。
 
@@ -244,7 +194,7 @@ fb22deefb9058b59700068739e5880c539c63398eaacc804afdb2d0a80b1978b  Wikifactory-Ed
 2. 在左侧填写 Content 页面路径（例如 `games/Satisfactory/Buildings/MAM.md`），点「浏览」从仓库选择文件，或点「加载」按路径读取。
 3. 在左侧填写元数据，在编辑区写 Markdown；用工具栏插入横幅、表格、图片、图标、站内链接。
 4. 点「预览」检查最终页面。
-5. 点「提交 PR」，确认分支名 / 提交信息 / PR 标题，创建 PR。
+5. 点「提交 PR」，选择变更类型、填写必填说明，查看内容差异，确认分支名 / 提交信息 / PR 标题后创建 PR。
 
 ### Token 获取步骤（贡献者必读）
 
@@ -301,12 +251,17 @@ toc: true
 
 [[Satisfactory/Buildings/MAM|MAM 建筑]]
 
+[[Audio/factory-ambient.ogg|工厂环境音]]
+
+[[Embed/youtube/dQw4w9WgXcQ|官方预告片]]
+
 | 名称 | 数量 |
 | --- | --- |
 | 铁锭 | [bg=&G;fg=#ffffff]42 |
 ```
 
-- 图片目录：`games/<游戏>/assets/images/`；图标目录：`games/<游戏>/assets/icons/`。
+- 图片目录：`games/<游戏>/assets/images/`；图标目录：`games/<游戏>/assets/icons/`；音频目录：`games/<游戏>/assets/audio/`（仅 `.ogg`）。
+- 嵌入来源：YouTube / 哔哩哔哩 / Vimeo；编辑器会把完整链接转换为 `youtube/ID`、`bilibili/BV号` 或 `vimeo/ID`。
 - 表格颜色支持快捷色名 `&R` `&O` `&Y` `&G` `&B` `&P` `&K`（以及 `&red` 等长名）。
 - 图片尺寸预设：`sm` / `md` / `lg` / `full`；对齐：`left` / `center` / `right`。
 - 正文图片请使用 `File/` 而不是 `File:`（避免与 `:::warning` 指令冲突）。
@@ -339,7 +294,7 @@ dist/                交付产物（exe / apk / web zip）
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.2.0-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.2.1-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 
@@ -358,12 +313,15 @@ npm run build:android:release
 
 桌面构建会在 `desktop/bin/` 缓存 Neutralinojs 二进制（已忽略），并通过 `neu build --release --embed-resources` 把全部资源嵌入 exe。
 
-Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.net` 加载本地静态文件，因此 `localStorage`、`fetch` 与 CORS 行为与普通浏览器一致；仅 `api.github.com` 会收到网络请求。
+Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.net` 加载本地静态文件，因此 `localStorage`、`fetch` 与 CORS 行为与普通浏览器一致；网络请求只发往 `api.github.com`（GitHub API）与 YouTube / Vimeo 的 oEmbed 标题接口。
 
 ## 已知限制
 
 - 预览是按需快照，不是实时渲染；仓库中已有的图片显示文件名 / alt，点击后才按需加载（本次会话上传的图片可直接预览）。
-- 音频同样按需加载；嵌入播放器需要网络，且实际播放取决于提供商是否允许 iframe 嵌入。
+- 音频同样按需加载；嵌入播放器需要网络，且实际播放取决于提供商是否允许 iframe 嵌入。预览中已提供来源标识与原链接降级入口，但无法检测 iframe 内部的播放失败。
+- 嵌入标题通过 YouTube / Vimeo 的 oEmbed 读取；哔哩哔哩不提供可用的跨域标题接口，标题需手动填写。
+- 离线缓存只覆盖文件树（图标 / 音频 / 站内链接存在性）；没有网络时无法读取文件正文或提交 PR，请先保存草稿。
+- 站内链接校验基于文件路径与文件名，无法读取页面 frontmatter 标题或 Wikifactory-Alias 别名，因此只给警告、不阻断。
 - Android Release 中的 debug APK 仅用于试用；长期分发请使用 CI 附加的签名版 APK（见「Android 签名」）。没有接入 Play Store / 自动更新。
 - Windows exe 依赖 WebView2 Runtime（Windows 10/11 通常自带）。
 - 编辑器仅访问 Content 仓库；如果未来需要恢复 Core/Alias，应作为独立应用或明确的新版本决策，而不是在当前版本中放开。

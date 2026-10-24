@@ -4,8 +4,8 @@ import { marked } from '../vendor/marked.esm.js';
 import DOMPurify from '../vendor/purify.es.mjs';
 import {
   CALLOUTS, CALLOUT_ALIASES, COLOR_ALIASES, COLOR_TOKENS, CSS_COLOR_RE,
-  IMAGE_ALIGNS, IMAGE_SIZES, ICON_SIZES, PAGE_TAGS, frontmatterData,
-  isAllowedEmbedUrl, parseAudioMarker, parseEmbedMarker,
+  IMAGE_ALIGNS, IMAGE_SIZES, ICON_SIZES, PAGE_TAGS, GAME_AUDIO_DIR, EMBED_PROVIDERS, frontmatterData,
+  embedPageUrl, isAllowedEmbedUrl, parseAudioMarker, parseEmbedMarker,
 } from './validate.js';
 import { escapeHtml, basename, stripExt } from './state.js';
 
@@ -199,7 +199,7 @@ const wikiAudioExtension = {
       data-audio-title="${escapeHtml(token.title || '')}" aria-label="加载音频 ${escapeHtml(token.name)}">
       <span class="wf-audio-icon">${audioIcon()}</span>
       <span class="wf-audio-text"><span class="wf-audio-name">${escapeHtml(token.name)}</span>${title}</span>
-      <span class="wf-audio-hint">点击加载音频</span>
+      <span class="wf-audio-hint">点击加载音频 · 来源：Content 仓库 ${escapeHtml(GAME_AUDIO_DIR)}/（OGG）</span>
     </span>`;
   },
 };
@@ -223,10 +223,23 @@ const wikiEmbedExtension = {
     }
     const title = token.title || token.provider || '嵌入播放器';
     const caption = token.title ? `<span class="wf-figcaption">${escapeHtml(token.title)}</span>` : '';
-    return `<span class="wf-embed" data-provider="${escapeHtml(token.provider || '')}">
+    const value = token.value || '';
+    const slash = value.indexOf('/');
+    const provider = token.provider || (slash === -1 ? value : value.slice(0, slash));
+    const id = slash === -1 ? '' : value.slice(slash + 1);
+    const label = EMBED_PROVIDERS.find((item) => item.id === provider)?.label || provider || '嵌入来源';
+    const pageUrl = embedPageUrl(provider, id);
+    const fallback = pageUrl
+      ? `<a class="wf-embed-open" href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener noreferrer">若无法播放，请点此打开原链接</a>`
+      : '';
+    return `<span class="wf-embed" data-provider="${escapeHtml(provider)}">
       <span class="wf-embed-frame"><iframe src="${escapeHtml(token.embedUrl)}" title="${escapeHtml(title)}" loading="lazy"
         allow="accelerometer; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
-        referrerpolicy="strict-origin-when-cross-origin"></iframe></span>${caption}
+        referrerpolicy="strict-origin-when-cross-origin"></iframe></span>
+      <span class="wf-embed-meta">
+        <span class="wf-embed-source">来源：${escapeHtml(label)} · ${escapeHtml(value)}</span>
+        ${fallback}
+      </span>${caption}
     </span>`;
   },
 };
@@ -279,7 +292,7 @@ marked.use({
 function prepareArticle(article, html) {
   const clean = DOMPurify.sanitize(html, {
     ADD_TAGS: ['figure', 'figcaption', 'iframe'],
-    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind', 'role', 'tabindex', 'aria-label', 'allow', 'allowfullscreen', 'referrerpolicy', 'frameborder'],
+    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind', 'role', 'tabindex', 'aria-label', 'allow', 'allowfullscreen', 'referrerpolicy', 'frameborder', 'target', 'rel'],
     FORBID_TAGS: ['script', 'style', 'object', 'embed', 'form', 'input', 'button'],
     FORBID_ATTR: ['onerror', 'onload', 'onclick'],
     ALLOW_DATA_ATTR: true,

@@ -1,6 +1,6 @@
 {
   "applicationId": "top.wikifactory.editor",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "defaultMode": "window",
   "port": 0,
   "documentRoot": "/resources/",

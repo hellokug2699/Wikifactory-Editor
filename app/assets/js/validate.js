@@ -564,6 +564,112 @@ export function validateAudioAvailability(body, { game, audioNames }) {
   return issues;
 }
 
+/** Original watch / page URL for an embed provider + id (fallback link). */
+export function embedPageUrl(provider, id) {
+  if (!provider || !id) return '';
+  if (provider === 'youtube') return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
+  if (provider === 'bilibili') {
+    const lower = String(id).toLowerCase();
+    return lower.startsWith('bv')
+      ? `https://www.bilibili.com/video/${encodeURIComponent(id)}`
+      : `https://www.bilibili.com/video/av${encodeURIComponent(String(id).replace(/^av/i, ''))}`;
+  }
+  if (provider === 'vimeo') return `https://vimeo.com/${encodeURIComponent(id)}`;
+  return '';
+}
+
+/** `[[页面|显示文字]]` page targets outside fenced / inline code. */
+export function extractLinkRefs(text) {
+  const masked = maskCode(String(text || ''));
+  const refs = [];
+  for (const match of masked.matchAll(/\[\[([^[\]\n]+)\]\]/g)) {
+    const inner = match[1];
+    if (/^(?:File|Image|文件|Audio|Embed)\s*[/\\:：]/i.test(inner)) continue;
+    const rawTarget = inner.split('|')[0].trim();
+    const hash = rawTarget.indexOf('#');
+    const target = hash === -1 ? rawTarget : rawTarget.slice(0, hash).trim();
+    if (!target) continue; // `[[#章节]]` only checks an anchor.
+    refs.push({ target, raw: match[0], line: lineOf(masked, match.index) });
+  }
+  return refs;
+}
+
+function linkKey(value) {
+  return normalizePath(value).normalize('NFC').toLowerCase();
+}
+
+/** Path-derived page / game / category / slug index (same shape as the content gate). */
+export function repositoryLinkIndex(repoPaths) {
+  const index = {
+    ids: new Set(),
+    idsKey: new Set(),
+    games: new Set(),
+    gamesKey: new Set(),
+    categories: new Set(),
+    categoriesKey: new Set(),
+    slugsByGame: new Map(),
+    titlesByGame: new Map(),
+  };
+  for (const path of repoPaths || []) {
+    if (!path.startsWith('games/') || !REPO_PAGE_RE.test(path)) continue;
+    const id = path.slice('games/'.length).replace(REPO_PAGE_RE, '');
+    const segments = id.split('/');
+    if (segments.length < 3) continue;
+    const game = segments[0];
+    const category = `${game}/${segments[1]}`;
+    const slug = segments[segments.length - 1];
+    index.ids.add(id);
+    index.idsKey.add(linkKey(id));
+    index.games.add(game);
+    index.gamesKey.add(linkKey(game));
+    index.categories.add(category);
+    index.categoriesKey.add(linkKey(category));
+    if (!index.slugsByGame.has(game)) index.slugsByGame.set(game, new Set());
+    if (!index.titlesByGame.has(game)) index.titlesByGame.set(game, new Set());
+    index.slugsByGame.get(game).add(linkKey(slug));
+    // Titles live in frontmatter, which the tree does not expose; the content
+    // gate falls back to the slug with dashes replaced by spaces, so mirror it.
+    index.titlesByGame.get(game).add(linkKey(slug.replace(/[-_]+/g, ' ')));
+  }
+  return index;
+}
+
+/**
+ * Warnings when `[[…]]` does not resolve to a page known from the file tree.
+ * Never blocks: the target may be an alias or intentionally pre-created.
+ */
+export function validateLinkTargets(body, { game, linkIndex }) {
+  const issues = [];
+  if (!linkIndex) return issues;
+  const seen = new Set();
+  for (const ref of extractLinkRefs(body)) {
+    if (seen.has(ref.target)) continue;
+    seen.add(ref.target);
+    const key = linkKey(ref.target);
+    const ok = linkIndex.ids.has(ref.target)
+      || linkIndex.idsKey.has(key)
+      || linkIndex.games.has(ref.target)
+      || linkIndex.gamesKey.has(key)
+      || linkIndex.categories.has(ref.target)
+      || linkIndex.categoriesKey.has(key)
+      || (game && linkIndex.categoriesKey.has(linkKey(`${game}/${ref.target}`)))
+      || (game && linkIndex.titlesByGame.get(game)?.has(key))
+      || (game && linkIndex.slugsByGame.get(game)?.has(key))
+      || [...linkIndex.titlesByGame.values()].some((set) => set.has(key))
+      || [...linkIndex.slugsByGame.values()].some((set) => set.has(key));
+    if (ok) continue;
+    const explicit = ref.target.includes('/');
+    issues.push(issue(
+      'warn',
+      explicit
+        ? `站内链接目标不存在：${ref.target}（可能是有意提前占位；仅提示，不阻断）`
+        : `站内链接无法解析：${ref.target}（可能是标题 / 别名；仅提示，不阻断）`,
+      { line: ref.line },
+    ));
+  }
+  return issues;
+}
+
 const REPO_PAGE_RE = /\.(md|mdx)$/i;
 
 /** Duplicate URL / case-only conflicts against the repository tree. */
@@ -601,6 +707,8 @@ export function validateWithRepo({ path, body, repoPaths, extraPaths = [] }) {
     ...validateIconAvailability(body, { game, iconNames: repositoryIconNames(allPaths, game) })
       .map((item) => ({ ...item, source: 'repo' })),
     ...validateAudioAvailability(body, { game, audioNames: repositoryAudioNames(allPaths, game) })
+      .map((item) => ({ ...item, source: 'repo' })),
+    ...validateLinkTargets(body, { game, linkIndex: repositoryLinkIndex(allPaths) })
       .map((item) => ({ ...item, source: 'repo' })),
     ...validateRepoConflicts({ path, repoPaths: allPaths }),
   ];
