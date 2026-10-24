@@ -99,6 +99,7 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.2-android.ap
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
+03c5804aa137c3852ff4186be10bceb6fabecb69d95a2d303897297de5a161e4  Wikifactory-Editor-v1.2.2-android-release.apk
 28c7093960c5e7c7f33922e5d17f7f9866a26fb6f75babcf9a271d1c175bd188  Wikifactory-Editor-v1.2.2-android.apk
 e1dbcef723be6470934f35a8e6083e00edb4619169a3032eae9224cc0a4b911a  Wikifactory-Editor-v1.2.2-web.zip
 fdca96ba7a908394cfe4f06c8d9196adc276fd6f1ea5dfe9938ec891fdb52f66  Wikifactory-Editor-v1.2.2-windows-x64.exe
