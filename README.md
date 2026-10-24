@@ -6,6 +6,15 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.2.5 质量更新
+
+- **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。网页上点「编辑」、点分享链接、或用文件管理器打开 `.md`，都会直接唤起 App 并定位到对应页面（应用内点击站内链接也不再跳浏览器）。网页版可用 `?path=games/…` 直达。
+- **审阅闭环**：PR 创建后按钮变为 `PR #编号`，可随时打开「PR 审阅状态」查看 state / 审阅结论 / 批准·要求修改·评论·待审阅数量 / 评论与审阅评论数 / 变更行数，并每 30 秒刷新。存在冲突时不再建议「换个分支名」，而是给出 `git merge`、`git rebase`、`--force-with-lease` 的完整步骤与 GitHub 网页端替代方案。
+- **批量操作**：侧栏新增「批量操作」。**批量编辑**把多个页面放进编辑队列，逐页修改后汇总成一个 PR（切换页面时自动保留队列内容）；**批量重命名**一次改多个页面，并扫描同游戏目录自动改写指向这些页面的 `[[…]]` 站内链接（代码块与行内代码不动），最终一个 PR 内完成改名 + 链接更新 + 旧文件删除。
+- **i18n 与无障碍**：新增 `i18n.js`（zh / en），界面控件、工具栏、设置与 v1.2.5 新窗口全部双语，缺失条目回退中文。CSP 收窄：`img-src` / `media-src` 只允许 `raw.githubusercontent.com` 与本机，`frame-src` 仍只放开 YouTube / 哔哩哔哩 / Vimeo；`frame-ancestors 'none'` 与 `X-Frame-Options: DENY` 通过 `app/_headers` 下发（浏览器忽略 meta 里的 frame-ancestors）。提交 / 批量改名等 busy 期间 Esc 与点击遮罩不再关闭窗口；toast 区域补 `role="status"` 与 `aria-live`。
+- **配置化**：新增仓库根 `editor-config.json`（Content owner/repo/branch、Release 仓库、保留路径与上传上限），构建时由 `scripts/editor-config.mjs` 生成带 SHA-256 与 owner 白名单的 `editor-config.js`。运行时先校验哈希再应用；哈希不符或配置被改动时仍要求通过白名单（owner 白名单、拒绝 Core / Alias、拒绝未知字段），失败则回退内置配置。**迁移 Content 仓库只需改这个 JSON，不必发新版**。
+- 版本号：**1.2.5**（Android versionCode 10205）。
+
 ## v1.2.4 质量更新
 
 - **拆分 main.js**：抽出 `dom.js`（`h()` 模板函数，默认转义）、`pr.js`（PR 模板 / 分支名 / diff 数据）、`repo-cache.js`（离线文件树缓存）、`issues.js`（问题分组与行内诊断映射）、`toolbar.js`、`frontmatter-form.js`；`main.js` 只保留 UI 编排，新增逻辑可以直接写单测。
@@ -26,26 +35,16 @@
 - **移除未签名 APK**：`dist/` 与所有 GitHub Release 中的 debug 签名 APK 已删除，只保留 CI 用 release keystore 签名的 `-android-release.apk`。`build:android` 仍可在本地生成 debug 包，但会被 `.gitignore` 排除。
 - 版本号：**1.2.3**（Android versionCode 15）。
 
-## v1.2.2 质量更新
+> 更早的版本记录（v1.1.1 – v1.2.2）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
 
-- **编辑器基础补齐**：接入 CodeMirror 6 的搜索（`Ctrl/Cmd+F`、`Ctrl/Cmd+H` 查找替换、匹配高亮）、自动补全（`[[` 补全站内页面，`[icon=` 补全当前游戏图标名，frontmatter 的 `tags` 补全内置分类）、自动闭合括号与选中内容高亮。补全数据直接复用仓库文件树、`PAGE_TAG_VALUES` 与图标索引，不额外发请求。
-- **新增快捷键**：`Ctrl/Cmd+I` 斜体、`Ctrl/Cmd+K` 插入 Markdown 链接、`Ctrl/Cmd+Shift+K` 插入站内链接并自动弹出补全。
-- **修复数据丢失 + 多草稿**：加载 / 浏览切换 / 新建页面前会检查未保存修改，可选择「保存草稿并继续 / 放弃修改 / 取消」。草稿改为按仓库路径分别保存在本机（最多 30 份），侧栏新增「最近草稿」入口，可恢复或删除任意一份，切换页面不再互相覆盖。
-- **粘贴 / 拖拽图片**：直接在正文粘贴或拖入图片，图片会加入「待上传资源」并插入 `[[File/名称|md]]`；超过 1 MB 的位图会用 canvas 缩放到长边 1600px 以内并转为 WebP，避免把几 MB 的 PNG 提进仓库。
-- **行内诊断**：校验结果通过 `@codemirror/lint` 映射为波浪线与行号栏标记，悬停可看具体文案；错误 / 警告与「检查」弹窗保持一致，点击问题跳行仍然可用。
-- **工程化底线**：新增 ESLint（flat config）+ Prettier 与 `npm run lint`；新增 `.github/workflows/ci.yml`（push / PR 运行 `npm ci && npm run lint && npm test`）。移除遗留的 `editor.js`、`repoSlug` 与未使用的工具函数，并清理不再引用的 CSS 变量。
-- 版本号：**1.2.2**（Android versionCode 14）。
-
-> 更早的版本记录（v1.1.1 – v1.2.1）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
-
-## 下载（v1.2.4）
+## 下载（v1.2.5）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.2.4-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
-| Windows 更新包 | [Wikifactory-Editor-v1.2.4-windows-x64-resources.neu](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-windows-x64-resources.neu) | 供桌面端自动更新使用；手动更新请下载 ZIP |
-| Android（签名） | [Wikifactory-Editor-v1.2.4-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级 |
-| 网页版（PWA） | [Wikifactory-Editor-v1.2.4-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-web.zip) | 解压后用任意静态服务器托管（https 或 localhost）；可安装到桌面并离线打开 |
+| Windows | [Wikifactory-Editor-v1.2.5-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
+| Windows 更新包 | [Wikifactory-Editor-v1.2.5-windows-x64-resources.neu](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-windows-x64-resources.neu) | 供桌面端自动更新使用；手动更新请下载 ZIP |
+| Android（签名） | [Wikifactory-Editor-v1.2.5-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级 |
+| 网页版（PWA） | [Wikifactory-Editor-v1.2.5-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-web.zip) | 解压后用任意静态服务器托管（https 或 localhost）；可安装到桌面并离线打开 |
 
 产物只发布在 [Releases](https://github.com/hellokug2699/Wikifactory-Editor/releases) 与 Actions artifact，仓库不再保存 `dist/` 二进制。
 
@@ -100,11 +99,11 @@ export ANDROID_KEYSTORE_PASSWORD='***'
 export ANDROID_KEY_ALIAS=wikifactory
 export ANDROID_KEY_PASSWORD='***'
 
-# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.4-android-release.apk）
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.5-android-release.apk）
 npm run build:android:release
 
 # 也可以只重签已有 APK（不重新构建）
-node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.4-android.apk
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.5-android.apk
 ```
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
@@ -136,6 +135,22 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.4-android.ap
 签名版 APK 由 CI 在发布 Release 后附加（其 SHA-256 会同步写入 Release 说明）；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
 
 ## 功能
+
+### 深链与外部打开
+
+| 入口 | 用法 |
+| --- | --- |
+| 网站页面 | `https://wikifactory.top/games/<游戏>/<分类>/<页面>/` 直接唤起 App 并加载该页面 |
+| 自定义 scheme | `wikifactory-editor://open?path=games/…` |
+| 网页版 | `index.html?path=games/…` 或 `?open=<任意受支持链接>` |
+| Markdown 文件 | Android「用其他应用打开」→ Wikifactory Editor，作为新页面导入（保存前确认仓库路径） |
+
+重命名 / 批量编辑与审阅状态都在应用内完成；冲突处理仍需要真实 git 客户端，窗口内会给出可复制的命令。
+
+### 仓库配置
+
+`editor-config.json`（仓库根）决定 Content owner / repo / branch、Release 仓库与保留路径。构建时 `npm run config:sync` 生成带 SHA-256 与 owner 白名单的 `app/assets/js/editor-config.js`，`npm run config:check` 校验两者一致；运行时若远程配置哈希变化，会先过白名单再应用，未通过则回退内置配置。
+
 
 ### 有效语法高亮（CodeMirror 6）
 

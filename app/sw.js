@@ -1,5 +1,5 @@
 /* Wikifactory Editor service worker: offline app shell for the web build. */
-const CACHE = 'wikifactory-editor-v1';
+const CACHE = 'wikifactory-editor-v2';
 const SHELL = ['./', './index.html', './assets/css/app.css', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {

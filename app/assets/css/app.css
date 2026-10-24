@@ -1796,3 +1796,35 @@ button.issue-item:hover { border-color: var(--border-strong); background: var(--
   padding: 20px;
   text-align: center;
 }
+
+/* ------------------------------------------------- v1.2.5 batch / review */
+.batch-list {
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--surface-2);
+}
+
+.batch-row {
+  display: grid;
+  grid-template-columns: auto 1fr minmax(120px, 34%);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.batch-row:hover { background: var(--surface-3); }
+.batch-row input[type="checkbox"] { margin: 0; }
+.batch-path { font-size: 11.5px; color: var(--text-soft); overflow-wrap: anywhere; }
+.batch-name { padding: 4px 8px; font-size: 12px; }
+
+.modal.is-busy .modal-close { opacity: .4; cursor: not-allowed; }
+
+@media (max-width: 720px) {
+  .batch-row { grid-template-columns: auto 1fr; }
+  .batch-row .batch-name { grid-column: 1 / -1; }
+}

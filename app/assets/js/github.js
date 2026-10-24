@@ -1,14 +1,17 @@
 /** Client-side GitHub REST API (no backend, token stays on this device). */
 
-import { base64ToUtf8, utf8ToBase64 } from './state.js';
+import { base64ToUtf8, CONTENT_REPO, utf8ToBase64 } from './state.js';
 
 const API = 'https://api.github.com';
-const CONTENT_REPO_NAME = 'Wikifactory-Content';
 
-/** The editor may only read from or write to the Content repository. */
+/**
+ * The editor may only read from or write to the configured Content repository.
+ * `CONTENT_REPO` comes from editor-config.json, so a repo migration does not
+ * require a new build, while every other repository stays refused.
+ */
 function assertContentRepo(repo) {
-  if (repo !== CONTENT_REPO_NAME) {
-    throw new GitHubError('该编辑器仅允许操作 Wikifactory-Content 仓库，已拒绝访问其他仓库。');
+  if (repo !== CONTENT_REPO) {
+    throw new GitHubError(`该编辑器仅允许操作 ${CONTENT_REPO} 仓库，已拒绝访问其他仓库。`);
   }
 }
 
@@ -262,6 +265,27 @@ export class GitHubClient {
     return Array.isArray(data) ? data[0] : null;
   }
 
+  /** Single pull request (state, mergeable, counts). */
+  async getPull(owner, repo, number) {
+    assertContentRepo(repo);
+    const { data } = await this.request(`${repoBase(owner, repo)}/pulls/${Number(number)}`);
+    return data;
+  }
+
+  /** Reviews submitted on a pull request (one entry per reviewer action). */
+  async listPullReviews(owner, repo, number) {
+    assertContentRepo(repo);
+    const { data } = await this.request(`${repoBase(owner, repo)}/pulls/${Number(number)}/reviews?per_page=100`);
+    return Array.isArray(data) ? data : [];
+  }
+
+  /** Issue comments on the pull request conversation. */
+  async listPullComments(owner, repo, number) {
+    assertContentRepo(repo);
+    const { data } = await this.request(`${repoBase(owner, repo)}/issues/${Number(number)}/comments?per_page=100`);
+    return Array.isArray(data) ? data : [];
+  }
+
   async ensureFork(owner, repo, login, onProgress) {
     assertContentRepo(repo);
     onProgress('创建 / 检查 Fork…');
@@ -401,10 +425,16 @@ export class GitHubClient {
 
     const treeEntries = [];
     for (const file of files) {
+      const path = file.path.replace(/^\/+/, '');
+      if (file.deleted) {
+        onProgress(`删除文件：${path}`, 'step');
+        treeEntries.push({ path, mode: '100644', type: 'blob', sha: null });
+        continue;
+      }
       onProgress(`上传文件：${file.path}`, 'step');
       const content = file.base64 ?? utf8ToBase64(file.text ?? '');
       const blobSha = await this.createBlob(headOwner, repo, content);
-      treeEntries.push({ path: file.path.replace(/^\/+/, ''), mode: '100644', type: 'blob', sha: blobSha });
+      treeEntries.push({ path, mode: '100644', type: 'blob', sha: blobSha });
     }
 
     onProgress('创建 Git tree…', 'step');

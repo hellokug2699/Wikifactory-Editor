@@ -1,24 +1,36 @@
 /** Persistent application state and small utilities. Content-only editor. */
 
+import { DEFAULT_CONFIG } from './editor-config.js';
+
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
 /** Single source: scripts/version.mjs generates version.js. */
 export { APP_VERSION, ANDROID_VERSION_CODE } from './version.js';
 
-/** The editor is deliberately hard-wired to the public Content repository. */
-export const CONTENT_OWNER = 'hellokug2699';
-export const CONTENT_REPO = 'Wikifactory-Content';
+/**
+ * Repository bindings. Values start from editor-config.json (baked at build)
+ * and can be replaced at runtime by a validated remote editor-config.json.
+ * They are `let` on purpose: importers see the live binding.
+ */
+export let CONTENT_OWNER = DEFAULT_CONFIG.content.owner;
+export let CONTENT_REPO = DEFAULT_CONFIG.content.repo;
+export let EDITOR_OWNER = DEFAULT_CONFIG.editor.owner;
+export let EDITOR_REPO = DEFAULT_CONFIG.editor.repo;
 
-/** Public repository that hosts editor releases (update checks only). */
-export const EDITOR_OWNER = 'hellokug2699';
-export const EDITOR_REPO = 'Wikifactory-Editor';
+export function setRepoConfig({ content, editor }) {
+  CONTENT_OWNER = content.owner;
+  CONTENT_REPO = content.repo;
+  EDITOR_OWNER = editor.owner;
+  EDITOR_REPO = editor.repo;
+}
 
 export function defaultState() {
   return {
     version: 3,
     theme: 'auto',
     settings: {
-      branch: '',
+      branch: DEFAULT_CONFIG.content.branch || '',
+      lang: 'zh',
       fontSize: 14.5,
       wrap: true,
       rememberToken: false,
@@ -86,6 +98,7 @@ function migrate(parsed) {
     if (typeof merged.settings.hideStatusBar !== 'boolean') merged.settings.hideStatusBar = false;
     if (typeof merged.settings.prAck !== 'boolean') merged.settings.prAck = false;
     if (!['auto', 'on', 'off'].includes(merged.settings.gutter)) merged.settings.gutter = 'auto';
+    if (!['zh', 'en'].includes(merged.settings.lang)) merged.settings.lang = 'zh';
   }
   merged.version = 3;
   if (!['body', 'frontmatter'].includes(merged.content?.editorTab)) merged.content.editorTab = 'body';

@@ -113,6 +113,27 @@ async function mockGitHub(page) {
     if (pathname.endsWith('/pulls') && method === 'POST') {
       return json({ html_url: 'https://github.com/hellokug2699/Wikifactory-Content/pull/42', number: 42 });
     }
+    // Review panel: conflicting PR + one approval.
+    if (/\/pulls\/42$/.test(pathname) && method === 'GET') {
+      return json({
+        state: 'open',
+        merged: false,
+        draft: false,
+        mergeable: false,
+        mergeable_state: 'dirty',
+        comments: 2,
+        review_comments: 1,
+        commits: 1,
+        changed_files: 1,
+        additions: 3,
+        deletions: 1,
+        head: { ref: 'wfe/e2e', repo: { owner: { login: 'hellokug2699' } } },
+        base: { ref: 'main' },
+      });
+    }
+    if (/\/pulls\/42\/reviews$/.test(pathname) && method === 'GET') {
+      return json([{ state: 'APPROVED', user: { login: 'maintainer' } }]);
+    }
     if (pathname.endsWith('/pulls')) return json([]);
     return json({ message: `unmocked ${method} ${pathname}` }, 404);
   });
@@ -195,8 +216,38 @@ try {
   await page.waitForFunction(() => document.body.textContent.includes('Pull Request #42 已创建'), null, {
     timeout: 15000,
   });
+
+  // 7. 审阅状态（mock /pulls/42：存在冲突）
+  await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('.modal-foot .btn')];
+    buttons.find((button) => button.textContent.includes('审阅'))?.click();
+  });
+  await page.waitForSelector('#review-card .pr-summary');
+  const reviewText = await page.textContent('#review-card');
+  assert(/已批准/.test(reviewText || ''), '审阅状态包含批准数');
+  assert(/冲突/.test(reviewText || ''), `冲突时给出指引（${reviewText?.slice(0, 80)}）`);
+  assert(/git merge/.test(reviewText || ''), '冲突指引包含 git 命令');
+  await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('.modal-foot .btn')];
+    buttons.find((button) => button.textContent === '取消')?.click();
+  });
+  await page.waitForTimeout(200);
+
+  // 8. 批量操作：列表、重命名输入框
+  await page.evaluate(() => document.querySelector('#btn-batch').click());
+  await page.waitForSelector('#batch-list .batch-row');
+  const rows = await page.$$eval('#batch-list .batch-row', (nodes) => nodes.length);
+  assert(rows >= 1, `批量列表渲染页面（${rows}）`);
+  await page.click('[data-batch-mode="rename"]');
+  assert(await page.$eval('.batch-name', (el) => !el.hidden), '批量重命名的文件名输入框可见');
+  await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('.modal-foot .btn')];
+    buttons.find((button) => button.textContent === '取消')?.click();
+  });
+  await page.waitForTimeout(200);
+
   assert(errors.length === 0, `无页面异常（${errors.join('; ')}）`);
-  console.log('[e2e] 主链路通过：加载 → 编辑 → 检查 → 预览 → PR');
+  console.log('[e2e] 主链路通过：加载 → 编辑 → 检查 → 预览 → PR → 审阅状态 → 批量操作');
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

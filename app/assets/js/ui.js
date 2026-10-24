@@ -10,6 +10,8 @@ let lastFocus = null;
 export function toast(message, type = 'info', timeout = 3200) {
   const node = document.createElement('div');
   node.className = `toast is-${type}`;
+  node.setAttribute('role', 'status');
+  node.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
   const iconName = type === 'success' ? 'check' : type === 'error' ? 'alert-circle' : 'info';
   node.innerHTML = `<span class="toast-icon">${icon(iconName)}</span><span>${escape(message)}</span>`;
   toastRegion.appendChild(node);
@@ -113,12 +115,16 @@ export function openModal(options) {
     el: wrapper,
     body: bodyEl,
     foot: footEl,
+    busy: false,
     close,
     setBusy(busy) {
+      api.busy = Boolean(busy);
       for (const button of wrapper.querySelectorAll('.modal-foot .btn')) {
-        button.disabled = busy;
+        button.disabled = api.busy;
       }
-      wrapper.classList.toggle('is-busy', busy);
+      // While a request is running, Esc / backdrop must not throw the work away.
+      wrapper.querySelector('.modal-close').disabled = api.busy;
+      wrapper.classList.toggle('is-busy', api.busy);
     },
   };
 
@@ -135,6 +141,9 @@ export function openModal(options) {
 function onKeydown(event) {
   if (!activeModal) return;
   if (event.key === 'Escape') {
+    // Busy modals (PR creation, batch rename) keep Esc inert so a request is
+    // never abandoned halfway.
+    if (activeModal.api?.busy) return;
     event.preventDefault();
     closeModal();
   }
@@ -156,7 +165,9 @@ function onKeydown(event) {
 }
 document.addEventListener('keydown', onKeydown);
 modalRoot.addEventListener('click', (event) => {
-  if (event.target === modalRoot && activeModal?.dismissible) closeModal();
+  if (event.target !== modalRoot) return;
+  if (!activeModal?.dismissible || activeModal.api?.busy) return;
+  closeModal();
 });
 
 export function closeModal(immediate = false) {

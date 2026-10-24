@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "content": {
+    "owner": "hellokug2699",
+    "repo": "Wikifactory-Content",
+    "branch": ""
+  },
+  "editor": {
+    "owner": "hellokug2699",
+    "repo": "Wikifactory-Editor"
+  },
+  "rules": {
+    "reservedPaths": ["search", "pagefind", "_astro", "404", "about"],
+    "maxUploadMb": 20
+  }
+}

@@ -60,6 +60,11 @@ import { TOOLBAR } from './toolbar.js';
 import { collectFormChanges, describeChanges, fmFormHtml, formValueToYaml, toggleTag } from './frontmatter-form.js';
 import { applyYamlChanges } from './frontmatter.js';
 import { compareVersions, desktopManifestUrl, planUpdate, releaseAsset } from './updates.js';
+import { parseDeepLink, importedPagePath } from './deep-link.js';
+import { commentSummary, mergeGuidance, reviewLabel, summarizeReview } from './review.js';
+import { linkScanTargets, pageIdOf, planRename, renamePagePath, rewritePageLinks } from './batch.js';
+import { applyI18n, LANGS, setLang, t, tOr } from './i18n.js';
+import { activeConfig, loadEditorConfig } from './config.js';
 import {
   applyTheme,
   confirmDialog,
@@ -129,6 +134,12 @@ let sessionBaseline = null;
 let updateCheckRunning = false;
 let contributingCache = null;
 let connection = { ok: false, login: '', scopes: '', message: '未连接' };
+/** PR created in this session (review panel target). */
+let sessionPr = null;
+/** Multi-page edit queue: path → { fmRaw, body, loadedPath, loadedSha }. */
+const batchQueue = new Map();
+let batchActive = false;
+let reviewTimer = 0;
 
 const bodyEditor = new CodeEditor(els.bodyHost, {
   value: state.content.body,
@@ -500,24 +511,27 @@ function setEditorTab(tab, { focus = true } = {}) {
 /* ----------------------------------------------------------------- toolbar */
 
 function renderToolbar() {
-  els.toolbar.innerHTML = TOOLBAR.map(
-    (group) => `
+  els.toolbar.innerHTML = TOOLBAR.map((group) => {
+    const groupLabel = tOr(group.labelKey, group.label);
+    return `
     <div class="toolbar-group">
-      <span class="toolbar-group-label">${escape(group.label)}</span>
+      <span class="toolbar-group-label">${escape(groupLabel)}</span>
       ${group.items
         .map((item) => {
+          const title = tOr(item.titleKey, item.title);
+          const label = item.labelKey ? tOr(item.labelKey, item.label) : item.label;
           const inner = item.icon
-            ? `${icon(item.icon)}${item.label ? `<span class="tool-label">${escape(item.label)}</span>` : ''}`
+            ? `${icon(item.icon)}${label ? `<span class="tool-label">${escape(label)}</span>` : ''}`
             : `<span class="tool-glyph">${escape(item.glyph)}</span>`;
           const classes = ['tool-btn', item.className || '', item.hasCaret ? 'has-caret' : '']
             .filter(Boolean)
             .join(' ');
-          return `<button type="button" class="${classes}" data-action="${item.action}" title="${escape(item.title || '')}" aria-label="${escape(item.title || item.action)}">${inner}</button>`;
+          return `<button type="button" class="${classes}" data-action="${item.action}" title="${escape(title)}" aria-label="${escape(title || item.action)}">${inner}</button>`;
         })
         .join('')}
     </div>
-  `,
-  ).join('');
+  `;
+  }).join('');
   els.toolbar.hidden = state.content.editorTab === 'frontmatter';
 }
 
@@ -1032,6 +1046,8 @@ async function loadCurrentFile({ skipConfirm = false } = {}) {
     if (decision === 'cancel') return;
     if (decision === 'save' && !saveDraft(true)) return;
   }
+  // Keep the outgoing page inside the batch queue before it is overwritten.
+  queueCapture(state.content.path);
   const path = currentPathValue().replace(/^\/+/, '');
   if (!path) {
     toast('请先填写仓库路径。', 'error');
@@ -2699,12 +2715,23 @@ function openSettings() {
       </div>
 
       <div class="pr-summary">
-        <div class="pr-summary-row"><span>目标仓库（固定）</span><span>${CONTENT_OWNER}/${CONTENT_REPO}</span></div>
+        <div class="pr-summary-row"><span>目标仓库（editor-config.json）</span><span>${CONTENT_OWNER}/${CONTENT_REPO}</span></div>
+        <div class="pr-summary-row"><span>Release 仓库</span><span>${EDITOR_OWNER}/${EDITOR_REPO}</span></div>
       </div>
       <label class="field"><span class="form-label">目标分支（留空 = 默认分支）</span><input class="input mono" id="set-branch" value="${escapeHtml(state.settings.branch)}" placeholder="main"></label>
 
       <details class="settings-group">
-        <summary>外观与编辑</summary>
+        <summary>${escapeHtml(tOr('set.appearance', '外观与编辑'))}</summary>
+        <label class="field">
+          <span class="form-label">${escapeHtml(tOr('set.lang', '界面语言'))}</span>
+          <select class="input" id="set-lang">
+            ${LANGS.map(
+              (lang) =>
+                `<option value="${lang.value}" ${state.settings.lang === lang.value ? 'selected' : ''}>${escapeHtml(lang.label)}</option>`,
+            ).join('')}
+          </select>
+          <p class="form-help">界面控件与设置已双语化；长篇说明文字仍以中文为主，缺失条目会回退中文。</p>
+        </label>
         <div class="form-grid-2">
           <label class="field"><span class="form-label">编辑器字号</span>
             <select class="input" id="set-fontsize">
@@ -2869,6 +2896,13 @@ function openSettings() {
           state.settings.wrap = body.querySelector('#set-wrap').checked;
           state.settings.gutter = body.querySelector('#set-gutter').value;
           state.settings.updateMode = Number(body.querySelector('#set-update-mode').value);
+          state.settings.lang = body.querySelector('#set-lang').value;
+          setLang(state.settings.lang);
+          applyI18n();
+          renderToolbar();
+          renderQueueBadge();
+          renderPrBadge();
+          updateRepoScope();
           state.settings.exitBehavior = body.querySelector('#set-exit-behavior').value;
           const statusBarInput = body.querySelector('#set-hide-statusbar');
           if (statusBarInput) state.settings.hideStatusBar = statusBarInput.checked;
@@ -3743,6 +3777,7 @@ async function openPrDialog({ prefill = null } = {}) {
   }
 
   const targetAssets = assets.map((asset) => asset.path);
+  const queueFiles = queuedFiles();
   const diff = currentPrDiff();
   const pageTitle = frontmatterData(state.content.fmRaw).title || stripExt(basename(path));
   const typeDefault = prefill?.prType || (state.content.loadedSha ? 'edit' : 'new');
@@ -3772,7 +3807,11 @@ async function openPrDialog({ prefill = null } = {}) {
       <div class="pr-summary">
         <div class="pr-summary-row"><span>目标仓库</span><span>${CONTENT_OWNER}/${CONTENT_REPO}</span></div>
         <div class="pr-summary-row"><span>目标分支</span><span>${escapeHtml(state.settings.branch || '默认分支')}</span></div>
-        <div class="pr-summary-row"><span>文件</span><span>${escapeHtml(path)}${targetAssets.length ? `<br>+ ${targetAssets.length} 个资源` : ''}</span></div>
+        <div class="pr-summary-row"><span>文件</span><span>${escapeHtml(path)}${targetAssets.length ? `<br>+ ${targetAssets.length} 个资源` : ''}${
+          queueFiles.length
+            ? `<br>+ ${queueFiles.length} 个批量页面：${queueFiles.map((file) => escapeHtml(file.path)).join('、')}`
+            : ''
+        }</span></div>
         <div class="pr-summary-row"><span>账号</span><span>${escapeHtml(connection.login || '待验证')}</span></div>
       </div>
       <div class="form-note is-accent">
@@ -3888,7 +3927,10 @@ async function openPrDialog({ prefill = null } = {}) {
                 throw new Error(`待上传图片路径不合法：${asset.path}`);
               }
             }
-            const files = [{ path, text: doc }];
+            for (const file of queueFiles) {
+              if (!isSafeRepoPath(file.path)) throw new Error(`批量页面路径不合法：${file.path}`);
+            }
+            const files = [{ path, text: doc }, ...queueFiles];
             for (const asset of assets) files.push({ path: asset.path, base64: asset.base64 });
             const client = new GitHubClient(sessionToken);
             const result = await client.submitPullRequest({
@@ -3915,6 +3957,11 @@ async function openPrDialog({ prefill = null } = {}) {
           `;
             const foot = modal.el.querySelector('.modal-foot');
             foot.innerHTML = '';
+            const reviewButton = document.createElement('button');
+            reviewButton.type = 'button';
+            reviewButton.className = 'btn';
+            reviewButton.textContent = tOr('review.title', 'PR 审阅状态');
+            reviewButton.addEventListener('click', () => openReviewDialog());
             const copyButton = document.createElement('button');
             copyButton.type = 'button';
             copyButton.className = 'btn';
@@ -3928,11 +3975,14 @@ async function openPrDialog({ prefill = null } = {}) {
             closeButton.className = 'btn btn-primary';
             closeButton.textContent = '关闭';
             closeButton.addEventListener('click', () => modal.close());
+            foot.appendChild(reviewButton);
             foot.appendChild(copyButton);
             foot.appendChild(closeButton);
             modal.body.innerHTML = '';
             modal.body.appendChild(success);
             modal.body.appendChild(logEl);
+            rememberSessionPr(result);
+            if (batchActive) endBatchQueue();
             assets.length = 0;
             renderAssets();
             toast('PR 已创建。', 'success');
@@ -4049,6 +4099,8 @@ function openMobileMenu() {
       <button class="btn btn-block" type="button" data-mobile-action="save">${icon('save')}保存本地草稿</button>
       <button class="btn btn-block" type="button" data-mobile-action="export">${icon('download')}导出当前文件</button>
       <button class="btn btn-block" type="button" data-mobile-action="sidebar">${icon('panel-left')}打开文档侧栏</button>
+      <button class="btn btn-block" type="button" data-mobile-action="batch">${icon('layers')}批量操作</button>
+      <button class="btn btn-block" type="button" data-mobile-action="review">${icon('git-pull-request')}${t('review.title')}</button>
       <button class="btn btn-block btn-danger" type="button" data-mobile-action="exit">${icon('x')}退出应用</button>
     </div>
   `;
@@ -4074,8 +4126,616 @@ function openMobileMenu() {
     else if (action === 'save') saveDraft(true);
     else if (action === 'export') exportCurrentFile();
     else if (action === 'sidebar') openSidebar();
+    else if (action === 'batch') openBatchDialog();
+    else if (action === 'review') openReviewDialog();
     else if (action === 'exit') requestExit();
   });
+}
+
+/* ----------------------------------------------------------- repo scope */
+
+/** Reflect the active (possibly remote) editor-config.json in the UI. */
+function updateRepoScope() {
+  const config = activeConfig();
+  const scope = `${CONTENT_OWNER}/${CONTENT_REPO}`;
+  const note = $('#repo-scope-note');
+  if (note) {
+    note.innerHTML = `仅可读取与修改 <code>${escapeHtml(scope)}</code>。Core / Alias 仓库不在本编辑器的访问范围内。${
+      config.source === 'remote'
+        ? `<br>仓库地址来自 <code>editor-config.json</code>${escapeHtml(
+            config.verified ? t('cfg.verified') : t('cfg.unverified'),
+          )}。`
+        : ''
+    }`;
+  }
+  els.statRepo.textContent = scope;
+  if (config.source === 'remote' && !config.verified) {
+    toast(`${t('cfg.remote')}${t('cfg.unverified')}`, 'info', 5600);
+  }
+  if (config.problems?.length) {
+    toast(`${t('cfg.rejected')}：${config.problems[0]}`, 'error', 5600);
+  }
+}
+
+/* ------------------------------------------------------------ deep links */
+
+/** Open a `wikifactory.top` page, `wikifactory-editor://` link or repo path. */
+async function openDeepLink(href, { silent = false } = {}) {
+  const target = parseDeepLink(href);
+  if (!target.ok) {
+    toast(`链接无法打开：${target.reason || '未知原因'}`, 'error', 4200);
+    return false;
+  }
+  if (target.kind === 'asset') {
+    toast('该链接指向资源文件；正文中请用 [[File/…]] 引用。', 'info', 4200);
+    return false;
+  }
+  if (!silent) {
+    const decision = await confirmBeforeDestructive('通过链接打开页面会替换当前编辑内容');
+    if (decision === 'cancel') return false;
+    if (decision === 'save' && !saveDraft(true)) return false;
+  }
+  if (batchActive) queueCapture(state.content.path);
+  state.content.path = target.path;
+  els.contentPath.value = target.path;
+  await loadCurrentFile({ skipConfirm: true });
+  closeSidebar();
+  toast(`${t('link.opened')} ${target.path}`, 'success', 3200);
+  return true;
+}
+
+/** Android "open with" / share: keep an external Markdown file as a new page. */
+async function importMarkdown({ name = '', text = '' } = {}) {
+  if (!String(text || '').trim()) {
+    toast('没有可导入的 Markdown 内容。', 'error');
+    return false;
+  }
+  const decision = await confirmBeforeDestructive('导入外部 Markdown 会替换当前编辑内容');
+  if (decision === 'cancel') return false;
+  if (decision === 'save' && !saveDraft(true)) return false;
+  const split = splitFrontmatter(text);
+  const path = importedPagePath(name);
+  state.content.path = path;
+  state.content.fmRaw = split.raw;
+  state.content.body = split.body.replace(/^\n+/, '');
+  state.content.loadedSha = null;
+  state.content.loadedPath = '';
+  state.content.loadedFmRaw = '';
+  state.content.loadedBody = '';
+  state.content.editorTab = 'body';
+  els.contentPath.value = path;
+  bodyEditor.setValue(state.content.body, { reset: true });
+  fmEditor.setValue(state.content.fmRaw, { reset: true });
+  renderFmForm();
+  populateFmForm();
+  syncEditorVisibility();
+  dirty = true;
+  lastIssues = [];
+  issuesStale = true;
+  applyInlineDiagnostics();
+  updateDocMeta();
+  updateStats();
+  updateSaveStatus();
+  toast(t('link.imported'), 'info', 5200);
+  return true;
+}
+
+/** Web build: `?path=games/…` or `?open=<url>` opens a page on startup. */
+async function handleStartupDeepLink() {
+  const params = new URLSearchParams(location.search);
+  const href = params.get('open') || params.get('url') || params.get('path') || '';
+  if (!href) return false;
+  const target = parseDeepLink(href);
+  if (!target.ok) return false;
+  history.replaceState(null, '', location.pathname + location.hash);
+  // Never silently replace a restored draft.
+  if (hasSessionChanges()) return false;
+  state.content.path = target.path;
+  els.contentPath.value = target.path;
+  await loadCurrentFile({ skipConfirm: true });
+  return true;
+}
+
+/* ------------------------------------------------------------- review loop */
+
+function rememberSessionPr(result) {
+  sessionPr = {
+    owner: CONTENT_OWNER,
+    repo: CONTENT_REPO,
+    number: result.number,
+    url: result.url,
+    branch: result.branch,
+    forkUsed: result.forkUsed,
+    headOwner: result.headOwner,
+  };
+  renderPrBadge();
+}
+
+function renderPrBadge() {
+  const button = $('#btn-pr');
+  if (!button) return;
+  const label = button.querySelector('.btn-label');
+  if (!label) return;
+  label.textContent = sessionPr ? `PR #${sessionPr.number}` : tOr('nav.pr', '提交 PR');
+}
+
+function reviewCardHtml(summary) {
+  const mergeable = summary.mergeable;
+  const mergeableText =
+    mergeable === true
+      ? t('review.mergeableYes')
+      : mergeable === false
+        ? t('review.mergeableNo')
+        : t('review.mergeableUnknown');
+  const counts = summary.counts;
+  return `
+    <div class="pr-summary">
+      <div class="pr-summary-row"><span>${t('review.state')}</span><span>${escapeHtml(summary.headline)}</span></div>
+      <div class="pr-summary-row"><span>${t('review.review')}</span><span>${escapeHtml(reviewLabel(summary.reviewState))}</span></div>
+      <div class="pr-summary-row"><span>${t('review.mergeable')}</span><span>${escapeHtml(mergeableText)}</span></div>
+      <div class="pr-summary-row"><span>${t('review.approved')}</span><span>${counts.approved}</span></div>
+      <div class="pr-summary-row"><span>${t('review.changes')}</span><span>${counts.changesRequested}</span></div>
+      <div class="pr-summary-row"><span>${t('review.commented')}</span><span>${counts.commented}</span></div>
+      <div class="pr-summary-row"><span>${t('review.pending')}</span><span>${counts.pending}</span></div>
+      <div class="pr-summary-row"><span>${escapeHtml(commentSummary(summary))}</span><span>+${summary.additions} / −${summary.deletions}</span></div>
+    </div>`;
+}
+
+function guidanceHtml(guidance) {
+  return `
+    <details class="diff-box" open>
+      <summary>${escapeHtml(guidance.title)}</summary>
+      <p class="form-help">${escapeHtml(guidance.summary)}</p>
+      <ol class="form-help">
+        ${guidance.steps.map((step) => `<li><code>${escapeHtml(step)}</code></li>`).join('')}
+      </ol>
+      <p class="form-help">rebase 方式（历史更整洁，需要 force-push）：</p>
+      <ol class="form-help">
+        ${guidance.rebaseAlternative.map((step) => `<li><code>${escapeHtml(step)}</code></li>`).join('')}
+      </ol>
+      <p class="form-help">${escapeHtml(guidance.webAlternative)}</p>
+    </details>`;
+}
+
+async function openReviewDialog() {
+  if (!sessionPr) {
+    toast(t('review.noPr'), 'info', 3600);
+    return;
+  }
+  await tokenReady;
+  const pr = sessionPr;
+  const body = h`<div class="form-grid">
+    <div class="form-note" id="review-loading">正在读取 PR #${pr.number} 的状态…</div>
+    <div id="review-card"></div>
+  </div>`;
+  const refresh = async () => {
+    const loading = body.querySelector('#review-loading');
+    const card = body.querySelector('#review-card');
+    try {
+      const client = new GitHubClient(sessionToken);
+      const pull = await client.getPull(pr.owner, pr.repo, pr.number);
+      const reviews = await client.listPullReviews(pr.owner, pr.repo, pr.number).catch(() => []);
+      const summary = summarizeReview({ pull, reviews });
+      if (loading) loading.hidden = true;
+      card.innerHTML = reviewCardHtml(summary);
+      if (pull.mergeable === false) {
+        const guidance = mergeGuidance({
+          headRef: pull.head?.ref || pr.branch,
+          baseRef: pull.base?.ref || 'main',
+          forkOwner: pull.head?.repo?.owner?.login || '',
+          upstream: pr.owner,
+        });
+        card.insertAdjacentHTML('beforeend', guidanceHtml(guidance));
+      }
+      return summary;
+    } catch (error) {
+      if (loading) {
+        loading.hidden = false;
+        loading.textContent = `读取失败：${error.message}`;
+      }
+      return null;
+    }
+  };
+
+  const modal = openModal({
+    title: t('review.title'),
+    subtitle: `#${pr.number} · ${pr.branch}`,
+    body,
+    size: 'wide',
+    footer: [
+      { label: t('review.refresh'), className: 'btn', onClick: () => refresh() },
+      {
+        label: t('review.open'),
+        className: 'btn-primary',
+        onClick: () => {
+          openExternal(pr.url);
+          modal.close();
+        },
+      },
+      { label: t('set.cancel'), className: 'btn-ghost', onClick: () => modal.close() },
+    ],
+    onClose: () => {
+      clearInterval(reviewTimer);
+      reviewTimer = 0;
+    },
+  });
+  await refresh();
+  clearInterval(reviewTimer);
+  reviewTimer = setInterval(refresh, 30000);
+}
+
+/* --------------------------------------------------------- batch operations */
+
+function queueCapture(path) {
+  if (!batchActive || !path || path !== state.content.path) return;
+  if (!batchQueue.has(path)) return;
+  batchQueue.set(path, {
+    fmRaw: state.content.fmRaw,
+    body: state.content.body,
+    loadedFmRaw: state.content.loadedFmRaw,
+    loadedBody: state.content.loadedBody,
+    loadedPath: state.content.loadedPath,
+    loadedSha: state.content.loadedSha,
+    captured: true,
+  });
+}
+
+function renderQueueBadge() {
+  const button = $('#btn-batch');
+  if (!button) return;
+  const label = tOr('side.batch', '批量操作');
+  button.textContent = batchActive ? `${t('batch.progress')} ${batchQueue.size}` : label;
+}
+
+/** Content of queued pages that differs from what was loaded from GitHub. */
+function queuedFiles() {
+  const files = [];
+  for (const [path, entry] of batchQueue) {
+    if (!entry?.captured || path === state.content.path) continue;
+    const unchanged =
+      entry.loadedPath === path && entry.body === (entry.loadedBody || '') && entry.fmRaw === (entry.loadedFmRaw || '');
+    if (unchanged) continue;
+    files.push({ path, text: joinDocument(entry.fmRaw || '', entry.body || '') });
+  }
+  return files;
+}
+
+async function loadQueuedPage(path, { skipConfirm = false } = {}) {
+  if (!skipConfirm) {
+    const decision = await confirmBeforeDestructive('切换到队列中的另一个页面');
+    if (decision === 'cancel') return false;
+    if (decision === 'save' && !saveDraft(true)) return false;
+  }
+  queueCapture(state.content.path);
+  state.content.path = path;
+  els.contentPath.value = path;
+  await loadCurrentFile({ skipConfirm: true });
+  return true;
+}
+
+async function nextQueuedPage() {
+  const paths = [...batchQueue.keys()];
+  const current = state.content.path;
+  const index = paths.indexOf(current);
+  const next = paths[(index + 1) % paths.length] || paths[0];
+  if (!next) return;
+  if (next === current) {
+    toast('队列只有当前页面。', 'info', 2600);
+    return;
+  }
+  await loadQueuedPage(next);
+  renderQueueBadge();
+}
+
+function endBatchQueue() {
+  batchQueue.clear();
+  batchActive = false;
+  renderQueueBadge();
+  toast('批量队列已结束。', 'success', 2600);
+}
+
+function batchRowHtml(path, mode) {
+  const stem = stripExt(basename(path));
+  return `
+    <label class="batch-row" data-path="${escapeHtml(path)}">
+      <input type="checkbox" value="${escapeHtml(path)}">
+      <span class="batch-path mono">${escapeHtml(path)}</span>
+      <input class="input mono batch-name" value="${escapeHtml(stem)}" data-name-for="${escapeHtml(path)}" ${
+        mode === 'rename' ? '' : 'hidden'
+      } autocomplete="off">
+    </label>`;
+}
+
+async function openBatchDialog() {
+  let index;
+  try {
+    index = await ensureRepoIndex();
+  } catch (error) {
+    toast(`无法读取仓库文件树：${error.message}`, 'error');
+    return;
+  }
+  if (!index?.paths) {
+    toast('批量操作需要仓库文件树（联网或使用本地缓存）。', 'error');
+    return;
+  }
+  const pages = index.paths.filter((path) => pageIdOf(path)).sort();
+  if (!pages.length) {
+    toast('仓库中没有可用页面。', 'error');
+    return;
+  }
+
+  const body = h`<div class="form-grid">
+    <div class="form-note is-accent">
+      批量操作只修改所选页面：批量编辑会把多个页面的改动汇总到同一个 PR；
+      批量重命名会同时改写指向这些页面的站内链接（可选）。
+    </div>
+    <div id="batch-queue"></div>
+    <div class="segmented" id="batch-mode">
+      <button type="button" class="is-active" data-batch-mode="edit">${t('batch.edit')}</button>
+      <button type="button" data-batch-mode="rename">${t('batch.rename')}</button>
+    </div>
+    <label class="field">
+      <span class="form-label">${t('batch.filter')}</span>
+      <input class="input" id="batch-filter" placeholder="games/…" autocomplete="off">
+    </label>
+    <div class="button-row">
+      <button class="btn btn-small" type="button" id="batch-select-all">${t('batch.selectAll')}</button>
+      <button class="btn btn-small" type="button" id="batch-clear">${t('batch.clear')}</button>
+      <span class="form-help" id="batch-count"></span>
+    </div>
+    <label class="check-row"><input type="checkbox" id="batch-scan-links" checked><span>${t('batch.scanLinks')}</span></label>
+    <div class="batch-list" id="batch-list"></div>
+    <div class="progress-log" id="batch-log" hidden></div>
+  </div>`;
+
+  let mode = 'edit';
+  const list = body.querySelector('#batch-list');
+  const countEl = body.querySelector('#batch-count');
+  const filterInput = body.querySelector('#batch-filter');
+  const queueHost = body.querySelector('#batch-queue');
+
+  const renderQueue = () => {
+    if (!batchActive || !batchQueue.size) {
+      queueHost.innerHTML = '';
+      return;
+    }
+    queueHost.innerHTML = `
+      <div class="form-note is-warn">
+        ${t('batch.queueTitle')}：${[...batchQueue.keys()].map((path) => `<code>${escapeHtml(path)}</code>`).join('、')}
+      </div>
+      <div class="button-row">
+        <button class="btn btn-small" type="button" id="batch-next">${t('batch.next')}</button>
+        <button class="btn btn-small" type="button" id="batch-finish">${t('batch.finish')}</button>
+      </div>`;
+    queueHost.querySelector('#batch-next')?.addEventListener('click', () => {
+      modal.close();
+      nextQueuedPage();
+    });
+    queueHost.querySelector('#batch-finish')?.addEventListener('click', () => {
+      endBatchQueue();
+      renderQueue();
+    });
+  };
+
+  const renderList = () => {
+    const query = filterInput.value.trim().toLowerCase();
+    const rows = pages.filter((path) => !query || path.toLowerCase().includes(query));
+    list.innerHTML = rows.map((path) => batchRowHtml(path, mode)).join('');
+    updateCount();
+  };
+
+  const selected = () => [...list.querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value);
+  const updateCount = () => {
+    countEl.textContent = `${t('batch.selected')} ${selected().length} / ${list.querySelectorAll('input[type="checkbox"]').length}`;
+  };
+
+  list.addEventListener('change', updateCount);
+  filterInput.addEventListener('input', renderList);
+  body.querySelector('#batch-select-all').addEventListener('click', () => {
+    for (const input of list.querySelectorAll('input[type="checkbox"]')) input.checked = true;
+    updateCount();
+  });
+  body.querySelector('#batch-clear').addEventListener('click', () => {
+    for (const input of list.querySelectorAll('input[type="checkbox"]')) input.checked = false;
+    updateCount();
+  });
+  body.querySelector('#batch-mode').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-batch-mode]');
+    if (!button) return;
+    mode = button.dataset.batchMode;
+    for (const item of body.querySelectorAll('[data-batch-mode]')) item.classList.toggle('is-active', item === button);
+    for (const input of list.querySelectorAll('.batch-name')) input.hidden = mode !== 'rename';
+  });
+
+  const modal = openModal({
+    title: t('batch.title'),
+    subtitle: `Content · ${CONTENT_OWNER}/${CONTENT_REPO}`,
+    body,
+    size: 'wide',
+    footer: [
+      { label: t('set.cancel'), className: 'btn-ghost', onClick: () => modal.close() },
+      {
+        label: t('batch.queue'),
+        className: 'btn',
+        onClick: async () => {
+          const paths = selected();
+          if (!paths.length) {
+            toast('请先选择页面。', 'error');
+            return;
+          }
+          const decision = await confirmBeforeDestructive('批量编辑会切换当前页面');
+          if (decision === 'cancel') return;
+          if (decision === 'save' && !saveDraft(true)) return;
+          batchActive = true;
+          for (const path of paths) {
+            if (!batchQueue.has(path)) batchQueue.set(path, { captured: false });
+          }
+          renderQueueBadge();
+          modal.close();
+          await loadQueuedPage(paths[0], { skipConfirm: true });
+          renderQueueBadge();
+          toast(`已加入队列：${paths.length} 个页面。`, 'success', 3600);
+        },
+      },
+      {
+        label: t('batch.renameRun'),
+        className: 'btn-primary',
+        onClick: async () => {
+          if (mode !== 'rename') {
+            toast('请先切换到「批量重命名」。', 'info', 2800);
+            return;
+          }
+          const paths = selected();
+          if (!paths.length) {
+            toast('请先选择页面。', 'error');
+            return;
+          }
+          await runBatchRename({
+            paths,
+            list,
+            scanLinks: body.querySelector('#batch-scan-links').checked,
+            repoPaths: index.paths,
+            modal,
+            logEl: body.querySelector('#batch-log'),
+          });
+        },
+      },
+    ],
+  });
+
+  renderQueue();
+  renderList();
+}
+
+/** Rename the selected pages, rewrite links and open one PR with every change. */
+async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl }) {
+  if (!sessionToken) {
+    toast('批量重命名需要 GitHub token，请先在设置中填写。', 'error');
+    openSettings();
+    return;
+  }
+  const plans = paths.map((path) => {
+    const input = list.querySelector(`[data-name-for="${CSS.escape(path)}"]`);
+    const name = input?.value?.trim() || stripExt(basename(path));
+    return planRename({ from: path, to: renamePagePath(path, name), repoPaths });
+  });
+  const invalid = plans.filter((plan) => !plan.ok);
+  const valid = plans.filter((plan) => plan.ok && !plan.unchanged);
+  if (invalid.length) {
+    toast(`有 ${invalid.length} 个重命名不合法：${invalid[0].error}`, 'error', 5200);
+    return;
+  }
+  if (!valid.length) {
+    toast('没有需要重命名的页面。', 'info', 2800);
+    return;
+  }
+  const confirmed = await confirmDialog({
+    title: '确认批量重命名',
+    message: `${valid
+      .map((plan) => `${plan.from} → ${plan.to}`)
+      .join(
+        '<br>',
+      )}<br>${scanLinks ? '<br>同时会扫描同游戏目录下的页面并改写站内链接。' : ''}<br><br>这会创建一个 PR。`,
+    confirmText: '创建 PR',
+  });
+  if (!confirmed) return;
+
+  logEl.hidden = false;
+  logEl.innerHTML = '';
+  const log = (message, kind = 'step') => {
+    const line = document.createElement('div');
+    line.className = kind;
+    line.textContent = message;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+  modal.setBusy(true);
+
+  const renamedIds = valid.map((plan) => ({ fromId: pageIdOf(plan.from), toId: pageIdOf(plan.to) }));
+  const targets = scanLinks
+    ? linkScanTargets({ renamedIds: renamedIds.map((item) => item.fromId), repoPaths, extra: valid.map((p) => p.from) })
+    : valid.map((plan) => plan.from);
+  const client = new GitHubClient(sessionToken);
+  const bodies = new Map();
+  for (const path of targets.slice(0, 60)) {
+    try {
+      const file = await client.loadFile(CONTENT_OWNER, CONTENT_REPO, path, state.settings.branch || '');
+      bodies.set(path, file.text);
+    } catch (error) {
+      log(`跳过 ${path}：${error.message}`, 'err');
+    }
+  }
+  log(`读取 ${bodies.size} 个页面`, 'ok');
+
+  const files = [];
+  let linkHits = 0;
+  for (const [path, text] of bodies) {
+    let next = text;
+    let hits = 0;
+    for (const item of renamedIds) {
+      const result = rewritePageLinks(next, { fromId: item.fromId, toId: item.toId });
+      next = result.text;
+      hits += result.replacements;
+    }
+    const plan = valid.find((item) => item.from === path);
+    if (plan) {
+      files.push({ path: plan.to, text: next, deleted: false });
+      files.push({ path: plan.from, text: null, deleted: true });
+      linkHits += hits;
+      log(`重命名 ${plan.from} → ${plan.to}（改写 ${hits} 处链接）`, 'step');
+    } else if (hits > 0) {
+      files.push({ path, text: next });
+      linkHits += hits;
+      log(`更新链接 ${path}（${hits} 处）`, 'step');
+    }
+  }
+  if (!files.some((file) => file.deleted)) {
+    log('未读取到待重命名页面的内容，已中止。', 'err');
+    modal.setBusy(false);
+    return;
+  }
+
+  const stamp = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  try {
+    const result = await client.submitPullRequest({
+      owner: CONTENT_OWNER,
+      repo: CONTENT_REPO,
+      baseBranch: state.settings.branch || '',
+      branchName: defaultBranchName('batch-rename.md'),
+      files,
+      commitMessage: `content: 批量重命名 ${valid.length} 个页面`,
+      prTitle: `content: 批量重命名 ${valid.length} 个页面`,
+      prBody: [
+        '## 变更类型',
+        '',
+        '- [x] 批量重命名 / 结构调整',
+        '',
+        '## 说明',
+        '',
+        `由编辑器批量重命名 ${valid.length} 个页面，并改写 ${linkHits} 处站内链接。`,
+        '',
+        '## 变更文件',
+        '',
+        ...valid.map((plan) => `- \`${plan.from}\` → \`${plan.to}\``),
+        ...files
+          .filter((file) => !valid.some((plan) => plan.from === file.path || plan.to === file.path))
+          .map((file) => `- \`${file.path}\`（链接更新）`),
+        '',
+        `由 Wikifactory Editor 批量操作提交（${stamp}）。`,
+      ].join('\n'),
+      onProgress: log,
+    });
+    log(`完成：PR #${result.number}`, 'ok');
+    rememberSessionPr(result);
+    modal.setBusy(false);
+    toast(`批量重命名已提交：PR #${result.number}`, 'success', 4600);
+    modal.close();
+    openReviewDialog();
+  } catch (error) {
+    log(`失败：${error.message}`, 'err');
+    modal.setBusy(false);
+    toast(error.message || '批量重命名失败。', 'error');
+  }
 }
 
 /* ------------------------------------------------------------------- init */
@@ -4105,6 +4765,7 @@ function bindEvents() {
   $('#btn-content-browse').addEventListener('click', openRepoBrowser);
   $('#btn-content-new-game').addEventListener('click', openNewGameDialog);
   $('#btn-content-drafts').addEventListener('click', openDraftsDialog);
+  $('#btn-batch').addEventListener('click', openBatchDialog);
 
   $('#btn-save').addEventListener('click', () => saveDraft(true));
   els.fmForm.addEventListener('click', (event) => {
@@ -4394,9 +5055,26 @@ function registerServiceWorker() {
   });
 }
 
-bindEvents();
-restoreInitialUi();
-registerServiceWorker();
+/**
+ * Boot: bind the UI immediately (so clicks work even on a slow network), then
+ * load editor-config.json — owner/repo may change, so repo-dependent labels are
+ * refreshed afterwards. A failed / rejected config keeps the built-in values.
+ */
+async function boot() {
+  setLang(state.settings.lang || 'zh');
+  applyI18n();
+  bindEvents();
+  restoreInitialUi();
+  registerServiceWorker();
+  renderQueueBadge();
+  renderPrBadge();
+  await loadEditorConfig();
+  if (activeConfig().source === 'remote') repoIndex = null;
+  updateRepoScope();
+  await handleStartupDeepLink();
+}
+
+boot();
 
 window.__WFE__ = {
   version: APP_VERSION,
@@ -4407,6 +5085,9 @@ window.__WFE__ = {
   get tokenSet() {
     return Boolean(sessionToken);
   },
+  get config() {
+    return activeConfig();
+  },
   validateNow,
   openPreview,
   openBranchConflictDialog,
@@ -4415,5 +5096,9 @@ window.__WFE__ = {
   requestExit,
   hasSessionChanges,
   setEditorTab,
+  openDeepLink,
+  importMarkdown,
+  openBatchDialog,
+  openReviewDialog,
   editors: { body: bodyEditor, frontmatter: fmEditor },
 };
