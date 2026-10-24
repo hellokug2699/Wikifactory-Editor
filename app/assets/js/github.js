@@ -129,6 +129,13 @@ export class GitHubClient {
       publishedAt: data.published_at || '',
       body: data.body || '',
       prerelease: Boolean(data.prerelease),
+      assets: Array.isArray(data.assets)
+        ? data.assets.map((asset) => ({
+            name: asset.name || '',
+            size: asset.size || 0,
+            url: asset.browser_download_url || '',
+          }))
+        : [],
     };
   }
 

@@ -14,7 +14,6 @@ import {
   formatTime,
   loadState,
   saveState,
-  slugify,
   stripExt,
 } from './state.js';
 import { CodeEditor, CURSOR } from './code-editor.js';
@@ -44,7 +43,6 @@ import {
   repositoryIconNames,
   setYamlField,
   splitFrontmatter,
-  summarizeIssues,
   validateContentPath,
   validateDocument,
   validateWithRepo,
@@ -52,8 +50,16 @@ import {
 import { GitHubClient, GitHubError } from './github.js';
 import { clearToken, loadToken, saveToken, tokenStorageKind } from './secure-token.js';
 import { buildPreview, attachToc } from './markdown.js';
-import { diffLines, diffStats, collapsedDiff } from './diff.js';
+import { diffLines } from './diff.js';
 import { deleteDraft, draftCount, listDrafts, saveDraftRecord } from './drafts.js';
+import { h, raw } from './dom.js';
+import { buildPrBody, buildPrDiff, defaultBranchName, prHeadline, PR_TYPES, uniqueBranchSuggestion } from './pr.js';
+import { readRepoCache, repoCacheNote, writeRepoCache } from './repo-cache.js';
+import { dedupeIssues, issueCounts, issuesForEditor, jumpTarget } from './issues.js';
+import { TOOLBAR } from './toolbar.js';
+import { collectFormChanges, describeChanges, fmFormHtml, formValueToYaml, toggleTag } from './frontmatter-form.js';
+import { applyYamlChanges } from './frontmatter.js';
+import { compareVersions, desktopManifestUrl, planUpdate, releaseAsset } from './updates.js';
 import {
   applyTheme,
   confirmDialog,
@@ -112,6 +118,8 @@ let sessionToken = '';
 let tokenReady = Promise.resolve();
 let dirty = false;
 let updatingForm = false;
+let fmFormDirty = false;
+const fmPending = new Map();
 let lastIssues = [];
 let issuesStale = true;
 let saveTimer = 0;
@@ -232,7 +240,7 @@ function updateStats() {
   const text = activeText();
   const { characters, words } = countCharacters(text);
   els.statChars.textContent = `${characters.toLocaleString('zh-CN')} 字符 / ${words.toLocaleString('zh-CN')} 词`;
-  const summary = summarizeIssues(lastIssues);
+  const summary = issueCounts(lastIssues);
   if (!lastIssues.length && issuesStale) {
     els.statIssues.textContent = '待检查';
     els.statIssues.className = 'stat-issues';
@@ -274,7 +282,10 @@ function syncEditorVisibility({ focus = false } = {}) {
 function onEditorInput(source) {
   if (source === 'frontmatter') {
     state.content.fmRaw = fmEditor.value;
+    fmPending.clear();
+    fmFormDirty = false;
     scheduleFormSync();
+    renderApplyBar();
   } else {
     state.content.body = bodyEditor.value;
   }
@@ -294,48 +305,21 @@ function scheduleFormSync() {
 /* ------------------------------------------------------------- frontmatter */
 
 function renderFmForm() {
-  const tagChips = PAGE_TAGS.map(
-    (tag) => `
-    <button type="button" class="chip" data-tag="${escapeHtml(tag.value)}"
-      title="${escapeHtml(tag.description)}" aria-pressed="false">${escapeHtml(tag.label)}</button>
-  `,
-  ).join('');
   const issueUrl = `${PAGE_TAG_ISSUE_URL}&title=${encodeURIComponent('新增页面分类：')}`;
-  els.fmForm.innerHTML = `
-    <label class="field">
-      <span class="field-label">标题 title</span>
-      <input class="input" data-fm="title" id="fm-title" placeholder="页面标题（缺省用文件名）" autocomplete="off">
-    </label>
-    <label class="field">
-      <span class="field-label">摘要 description</span>
-      <textarea class="input" data-fm="description" id="fm-description" rows="2" placeholder="用于列表卡片与 SEO"></textarea>
-    </label>
-    <div class="field">
-      <span class="field-label">页面分类 tags</span>
-      <div class="chip-row tag-picker" id="fm-tags" role="group" aria-label="页面分类">${tagChips}</div>
-      <p class="form-help">分类由编辑器模板统一分发；未在模板中的分类会被内容门禁拒绝。需要新增分类请
-        <a href="${issueUrl}" target="_blank" rel="noopener">在编辑器仓库提交 issue</a>。</p>
-    </div>
-    <details class="fm-advanced">
-      <summary>更多选项（排序 / 日期 / 草稿 / 目录）</summary>
-      <div class="fm-grid-2">
-        <label class="field">
-          <span class="field-label">排序 order</span>
-          <input class="input" data-fm="order" id="fm-order" type="number" placeholder="10">
-        </label>
-        <label class="field">
-          <span class="field-label">更新日期 updated</span>
-          <input class="input" data-fm="updated" id="fm-updated" type="date">
-        </label>
+  els.fmForm.innerHTML = fmFormHtml({ tags: PAGE_TAGS, issueUrl });
+  els.fmForm.append(
+    h`<div class="fm-apply-bar" id="fm-apply-bar" hidden>
+      <span class="fm-apply-text" id="fm-apply-text"></span>
+      <div class="button-row">
+        <button class="btn btn-small btn-ghost" type="button" id="fm-apply-discard">放弃</button>
+        <button class="btn btn-small btn-primary" type="button" id="fm-apply">应用更改</button>
       </div>
-      <label class="check-row"><input type="checkbox" data-fm="draft" id="fm-draft"><span>草稿（draft：仅开发环境可见）</span></label>
-      <label class="check-row"><input type="checkbox" data-fm="toc" id="fm-toc" checked><span>显示页内目录（toc）</span></label>
-    </details>
-    <p class="form-help">修改表单会同步到 frontmatter，未知字段与注释保持不变。需要完整控制时打开「元数据 YAML」标签（带 YAML 语法高亮）。</p>
-  `;
+    </div>`,
+  );
   // Assign (not addEventListener) so repeated renders do not stack handlers.
   els.fmForm.oninput = onFmFieldInput;
   els.fmForm.onclick = onFmTagClick;
+  renderApplyBar();
 }
 
 function populateFmForm() {
@@ -353,6 +337,7 @@ function populateFmForm() {
   if (draft && document.activeElement !== draft) draft.checked = data.draft;
   const toc = els.fmForm.querySelector('#fm-toc');
   if (toc && document.activeElement !== toc) toc.checked = data.toc;
+  fmFormDirty = false;
 }
 
 /** Reflect selected tags on the template chips; unknown tags become removable warning chips. */
@@ -369,52 +354,140 @@ function renderTagSelection(tags) {
   const known = new Set(PAGE_TAG_VALUES);
   for (const tag of tags) {
     if (known.has(tag)) continue;
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip is-active is-unknown';
-    chip.dataset.unknownTag = tag;
-    chip.title = '模板中不存在该分类；点击移除，或到编辑器仓库申请新增';
-    chip.textContent = `${tag} ×`;
+    const chip = h`<button type="button" class="chip is-active is-unknown"
+      data-unknown-tag="${tag}"
+      title="模板中不存在该分类；点击移除，或到编辑器仓库申请新增">${tag} ×</button>`;
     picker.append(chip);
   }
+}
+
+/** Current form values mapped to YAML semantics. */
+function fmFormValues() {
+  const data = frontmatterData(state.content.fmRaw);
+  const values = { tags: fmPending.has('tags') ? fmPending.get('tags') : data.tags };
+  for (const node of els.fmForm.querySelectorAll('[data-fm]')) {
+    const key = node.dataset.fm;
+    if (key === 'tags') continue;
+    if (node.type === 'checkbox') values[key] = node.checked;
+    else values[key] = node.value;
+  }
+  const mapped = {};
+  for (const [key, value] of Object.entries(values)) mapped[key] = formValueToYaml(key, value);
+  return mapped;
+}
+
+function pendingFmChanges() {
+  if (!fmFormDirty) return {};
+  return collectFormChanges(frontmatterData(state.content.fmRaw), fmFormValues());
+}
+
+function renderApplyBar() {
+  const bar = els.fmForm?.querySelector('#fm-apply-bar');
+  if (!bar) return;
+  const changes = pendingFmChanges();
+  const count = Object.keys(changes).length;
+  bar.hidden = count === 0;
+  const text = bar.querySelector('#fm-apply-text');
+  if (text) text.textContent = count ? `待应用：${describeChanges(changes)}` : '';
+}
+
+/** Diff preview before writing form edits into the raw frontmatter. */
+function confirmFmDiff(before, after, changes) {
+  return new Promise((resolve) => {
+    const ops = diffLines(before, after);
+    const rows = ops
+      .map((row) => {
+        const sign = row.type === 'add' ? '+' : row.type === 'del' ? '−' : ' ';
+        return (
+          `<div class="diff-row is-${row.type}">` +
+          `<span class="diff-num">${row.oldLine ?? ''}</span>` +
+          `<span class="diff-num">${row.newLine ?? ''}</span>` +
+          `<span class="diff-sign">${sign}</span>` +
+          `<code>${escapeHtml(row.text) || ' '}</code></div>`
+        );
+      })
+      .join('');
+    const body = h`<div class="form-grid">
+      <div class="form-note is-accent">将应用：${describeChanges(changes)}。未知字段与注释会保留。</div>
+      <div class="diff-view">${raw(rows)}</div>
+    </div>`;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+      modal.close();
+    };
+    const modal = openModal({
+      title: '应用元数据修改？',
+      subtitle: '确认 frontmatter 差异',
+      body,
+      size: 'wide',
+      footer: [
+        { label: '取消', className: 'btn-ghost', onClick: () => finish(false) },
+        { label: '应用', className: 'btn-primary', onClick: () => finish(true) },
+      ],
+      onClose: () => finish(false),
+    });
+  });
+}
+
+/**
+ * Apply pending form edits. `confirm` shows the diff first; save/preview calls
+ * flush silently so edits are never dropped.
+ */
+async function applyFmChanges({ confirm = true } = {}) {
+  const changes = pendingFmChanges();
+  if (!Object.keys(changes).length) {
+    if (confirm) toast('没有待应用的修改。', 'info', 2200);
+    return false;
+  }
+  const before = state.content.fmRaw;
+  const after = applyYamlChanges(before, changes);
+  if (after !== before && confirm) {
+    const ok = await confirmFmDiff(before, after, changes);
+    if (!ok) return false;
+  }
+  state.content.fmRaw = after;
+  if (fmEditor.value !== after) fmEditor.setValue(after, { reset: false });
+  fmPending.clear();
+  populateFmForm();
+  renderApplyBar();
+  updateDocMeta();
+  markDirty();
+  if (confirm) toast('已应用表单修改。', 'success');
+  return true;
+}
+
+function flushFmChanges() {
+  if (!els.fmForm?.querySelector('#fm-apply-bar')) return Promise.resolve(false);
+  return applyFmChanges({ confirm: false });
 }
 
 function onFmTagClick(event) {
   const chip = event.target.closest('[data-tag], [data-unknown-tag]');
   if (!chip || !els.fmForm.contains(chip)) return;
   const tag = chip.dataset.tag ?? chip.dataset.unknownTag;
-  const current = frontmatterData(state.content.fmRaw).tags;
-  const next = current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag];
-  state.content.fmRaw = setYamlField(state.content.fmRaw, 'tags', next);
-  if (fmEditor.value !== state.content.fmRaw) {
-    fmEditor.setValue(state.content.fmRaw, { reset: false });
-  }
-  populateFmForm();
-  updateDocMeta();
-  markDirty();
+  const current = fmFormValues().tags;
+  fmPending.set('tags', toggleTag(current, tag));
+  fmFormDirty = true;
+  renderTagSelection(fmPending.get('tags'));
+  renderApplyBar();
 }
 
 function onFmFieldInput(event) {
   if (updatingForm) return;
   const field = event.target.dataset.fm;
   if (!field) return;
-  let value;
-  if (field === 'order') {
-    value = event.target.value === '' ? '' : Number(event.target.value);
-  } else if (field === 'draft' || field === 'toc') {
-    const checked = event.target.checked;
-    if (field === 'draft') value = checked ? true : '';
-    else value = checked ? '' : false;
-  } else {
-    value = event.target.value;
-  }
+  fmFormDirty = true;
+  renderApplyBar();
+}
 
-  state.content.fmRaw = setYamlField(state.content.fmRaw, field, value);
-  if (fmEditor.value !== state.content.fmRaw) {
-    fmEditor.setValue(state.content.fmRaw, { reset: false });
-  }
-  updateDocMeta();
-  markDirty();
+/** Drop pending form edits without touching the raw YAML. */
+function discardFmChanges() {
+  fmPending.clear();
+  populateFmForm();
+  renderApplyBar();
 }
 
 function setEditorTab(tab, { focus = true } = {}) {
@@ -425,58 +498,6 @@ function setEditorTab(tab, { focus = true } = {}) {
 }
 
 /* ----------------------------------------------------------------- toolbar */
-
-const HISTORY_GROUP = {
-  label: '历史',
-  items: [
-    { action: 'undo', icon: 'undo', title: '撤销 (Ctrl+Z)' },
-    { action: 'redo', icon: 'redo', title: '重做 (Ctrl+Shift+Z)' },
-  ],
-};
-
-const FORMAT_GROUP = {
-  label: '格式',
-  items: [
-    { action: 'h1', glyph: 'H1', title: '一级标题' },
-    { action: 'h2', glyph: 'H2', title: '二级标题' },
-    { action: 'h3', glyph: 'H3', title: '三级标题' },
-    { action: 'bold', glyph: 'B', className: 'is-strong', title: '粗体：插入 **** 并定位中间 (Ctrl+B)' },
-    { action: 'italic', glyph: 'I', className: 'is-italic', title: '斜体：插入 ** 并定位中间' },
-    { action: 'strike', glyph: 'S', title: '删除线' },
-    { action: 'inlineCode', icon: 'code', title: '行内代码' },
-    { action: 'mdLink', icon: 'external-link', title: '标准 Markdown 链接' },
-    { action: 'quote', icon: 'quote', title: '引用' },
-    { action: 'ul', icon: 'list', title: '无序列表' },
-    { action: 'ol', icon: 'list-ordered', title: '有序列表' },
-    { action: 'task', icon: 'check-square', title: '任务列表' },
-    { action: 'hr', icon: 'minus', title: '分隔线' },
-    { action: 'codeblock', icon: 'braces', title: '代码块' },
-    { action: 'callout', icon: 'info', label: '横幅', hasCaret: true, title: '插入横幅 / 提示框' },
-  ],
-};
-
-const CONTENT_WIKI_GROUP = {
-  label: 'Wiki',
-  items: [
-    { action: 'wikiLink', icon: 'link', label: '内链', title: '站内链接 [[…]]' },
-    { action: 'wikiImage', icon: 'image', label: '图片', title: '插入正文图片 [[File/…]]' },
-    { action: 'icon', icon: 'grid', label: '图标', title: '插入内联图标 [icon=…]' },
-    { action: 'audio', icon: 'music', label: '音频', title: '插入 OGG 音频 [[Audio/…]]' },
-    { action: 'embed', icon: 'video', label: '嵌入', title: '嵌入播放器 [[Embed/https://…]]' },
-    { action: 'table', icon: 'table', label: '表格', title: '生成表格（N 行 × M 列）' },
-    { action: 'cellColor', icon: 'palette', label: '单元格色', title: '表格单元格颜色' },
-  ],
-};
-
-const CHECK_GROUP = {
-  label: '检查',
-  items: [
-    { action: 'validate', icon: 'shield', label: '检查', title: '检查路径 / 元数据 / Wiki 语法' },
-    { action: 'preview', icon: 'eye', label: '预览', title: '生成预览页面 (Ctrl+Enter)' },
-  ],
-};
-
-const TOOLBAR = [HISTORY_GROUP, FORMAT_GROUP, CONTENT_WIKI_GROUP, CHECK_GROUP];
 
 function renderToolbar() {
   els.toolbar.innerHTML = TOOLBAR.map(
@@ -813,43 +834,6 @@ function collectIssues() {
 /** Cached repository file list used for gate-parity checks (icons, URL conflicts). */
 let repoIndex = null;
 
-const REPO_CACHE_KEY = 'wikifactory-editor:repo-tree:v1';
-const REPO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
-
-function readRepoCache(ref) {
-  try {
-    const raw = localStorage.getItem(REPO_CACHE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || !Array.isArray(data.paths) || data.ref !== ref) return null;
-    if (Date.now() - Number(data.at || 0) > REPO_CACHE_TTL) return null;
-    return { ref: data.ref, paths: data.paths, at: Number(data.at) || 0, error: null, cached: true };
-  } catch {
-    return null;
-  }
-}
-
-function writeRepoCache(index) {
-  try {
-    localStorage.setItem(
-      REPO_CACHE_KEY,
-      JSON.stringify({
-        ref: index.ref,
-        paths: index.paths,
-        at: index.at,
-      }),
-    );
-  } catch {
-    // Quota / private mode: the in-memory index still works for this session.
-  }
-}
-
-/** Note shown next to checks that read the file tree from the offline cache. */
-function repoCacheNote(index = repoIndex) {
-  if (!index?.cached) return '';
-  return `本地缓存（${formatTime(index.at)}），可能过期`;
-}
-
 async function ensureRepoIndex({ force = false } = {}) {
   const ref = state.settings.branch || 'HEAD';
   const ttl = repoIndex?.error ? 60 * 1000 : 5 * 60 * 1000;
@@ -863,9 +847,9 @@ async function ensureRepoIndex({ force = false } = {}) {
       error: null,
       cached: false,
     };
-    writeRepoCache(repoIndex);
+    writeRepoCache(localStorage, repoIndex);
   } catch (error) {
-    const cached = readRepoCache(ref);
+    const cached = readRepoCache(localStorage, ref);
     repoIndex = cached ? { ...cached, error } : { ref, paths: null, at: Date.now(), error, cached: false };
   }
   return repoIndex;
@@ -899,7 +883,7 @@ async function validateNow({ open = false } = {}) {
   applyInlineDiagnostics();
 
   const repoIssues = await collectRepoIssues().catch(() => []);
-  const issues = [...syncIssues, ...repoIssues];
+  const issues = dedupeIssues([...syncIssues, ...repoIssues]);
   lastIssues = issues;
   issuesStale = false;
   updateStats();
@@ -973,14 +957,12 @@ function frontmatterCompletionSource(context) {
 
 /** Push the latest issue list into the editors as inline diagnostics. */
 function applyInlineDiagnostics() {
-  const bodyIssues = lastIssues.filter((item) => item.source === 'body' || item.source === 'repo');
-  const fmIssues = lastIssues.filter((item) => item.source === 'frontmatter');
-  bodyEditor.setDiagnostics(bodyIssues);
-  fmEditor.setDiagnostics(fmIssues);
+  bodyEditor.setDiagnostics(issuesForEditor(lastIssues, 'body'));
+  fmEditor.setDiagnostics(issuesForEditor(lastIssues, 'frontmatter'));
 }
 
 function showIssuesDialog(issues) {
-  const summary = summarizeIssues(issues);
+  const summary = issueCounts(issues);
   if (!issues.length) {
     toast('检查通过：没有发现错误或警告。', 'success');
     return;
@@ -1035,9 +1017,10 @@ function showIssuesDialog(issues) {
 
 function jumpToIssue(issue) {
   if (!issue) return;
-  setEditorTab(issue.source === 'frontmatter' ? 'frontmatter' : 'body');
-  const editor = issue.source === 'frontmatter' ? fmEditor : bodyEditor;
-  if (issue.line) editor.jumpToLine(issue.line);
+  const target = jumpTarget(issue);
+  setEditorTab(target.editor);
+  const editor = target.editor === 'frontmatter' ? fmEditor : bodyEditor;
+  if (Number.isFinite(issue.line)) editor.jumpToLine(target.line);
   else editor.focus();
 }
 
@@ -1197,6 +1180,7 @@ function openNewGameDialog() {
 
 function saveDraft(manual = false) {
   clearTimeout(saveTimer);
+  if (typeof flushFmChanges === 'function') flushFmChanges();
   state.content.body = bodyEditor.value;
   state.content.fmRaw = fmEditor.value;
   state.content.lastSaved = Date.now();
@@ -1507,6 +1491,7 @@ function attachLazyPreviewAudio(article, pagePath = state.content.path) {
 }
 
 function openPreview() {
+  flushFmChanges();
   const map = assetsForPreview();
   let result;
   try {
@@ -2397,7 +2382,7 @@ function openAudioDialog() {
       return;
     }
     const exists = repositoryAudioNames(index.paths, game).has(file);
-    const cacheNote = repoCacheNote(index) ? `；${repoCacheNote(index)}` : '';
+    const cacheNote = repoCacheNote(index, formatTime) ? `；${repoCacheNote(index, formatTime)}` : '';
     statusEl.style.color = exists ? 'var(--success)' : 'var(--danger)';
     statusEl.textContent = exists
       ? `已在仓库中找到：${defaultPath(file)}${cacheNote}`
@@ -2741,9 +2726,14 @@ function openSettings() {
 
       <details class="settings-group">
         <summary>启动与退出</summary>
-        <label class="check-row">
-          <input type="checkbox" id="set-update-check" ${state.settings.updateCheck === false ? '' : 'checked'}>
-          <span>启动时检查更新（仅提示，不自动下载）</span>
+        <label class="field">
+          <span class="form-label">更新方式</span>
+          <select class="input" id="set-update-mode">
+            <option value="0" ${Number(state.settings.updateMode) === 0 ? 'selected' : ''}>0 · 有新版本时自动下载（Android 需允许安装未知来源）</option>
+            <option value="1" ${Number(state.settings.updateMode) === 1 ? 'selected' : ''}>1 · 提示后手动下载（默认）</option>
+            <option value="2" ${Number(state.settings.updateMode) === 2 ? 'selected' : ''}>2 · 不检查更新</option>
+          </select>
+          <p class="form-help">桌面端自动下载的是 <code>resources.neu</code> 资源包，重启后生效；Android 会打开签名 APK 的下载地址。</p>
         </label>
         <label class="field">
           <span class="form-label">退出行为</span>
@@ -2878,7 +2868,7 @@ function openSettings() {
           state.settings.fontSize = Number(body.querySelector('#set-fontsize').value) || 14.5;
           state.settings.wrap = body.querySelector('#set-wrap').checked;
           state.settings.gutter = body.querySelector('#set-gutter').value;
-          state.settings.updateCheck = body.querySelector('#set-update-check').checked;
+          state.settings.updateMode = Number(body.querySelector('#set-update-mode').value);
           state.settings.exitBehavior = body.querySelector('#set-exit-behavior').value;
           const statusBarInput = body.querySelector('#set-hide-statusbar');
           if (statusBarInput) state.settings.hideStatusBar = statusBarInput.checked;
@@ -3065,40 +3055,88 @@ async function confirmPrPermissions() {
 
 /* -------------------------------------------------------- updates / guide */
 
-function parseVersion(value) {
-  return String(value || '')
-    .replace(/^v/i, '')
-    .split(/[.+-]/)
-    .slice(0, 3)
-    .map((part) => Number.parseInt(part, 10) || 0);
+const DESKTOP_MANIFEST_URL = desktopManifestUrl(EDITOR_OWNER, EDITOR_REPO);
+
+function updateMode() {
+  return Number(state.settings.updateMode ?? 1);
 }
 
-function compareVersions(a, b) {
-  const left = parseVersion(a);
-  const right = parseVersion(b);
-  for (let index = 0; index < 3; index += 1) {
-    if (left[index] !== right[index]) return left[index] - right[index];
+function updatePlatform() {
+  if (isDesktopRuntime()) return 'desktop';
+  if (isAndroidRuntime()) return 'android';
+  return 'web';
+}
+
+function isDesktopRuntime() {
+  return Boolean(window.NL_PORT && window.Neutralino?.updater);
+}
+
+function isAndroidRuntime() {
+  return typeof window.AndroidEditor?.exitApp === 'function';
+}
+
+/** Desktop: download resources.neu through Neutralino's updater and apply on restart. */
+async function installDesktopUpdate(latest) {
+  if (!isDesktopRuntime()) return false;
+  try {
+    const response = await fetch(DESKTOP_MANIFEST_URL, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`manifest HTTP ${response.status}`);
+    const manifest = await response.json();
+    const version = String(manifest.version || latest);
+    if (compareVersions(version, APP_VERSION) <= 0) return false;
+    await window.Neutralino.updater.checkForUpdates(DESKTOP_MANIFEST_URL);
+    await window.Neutralino.updater.install();
+    toast(`更新包 v${version} 已下载，重启应用后生效。`, 'success', 6000);
+    return true;
+  } catch (error) {
+    console.warn('[update] 桌面自动更新失败', error);
+    return false;
   }
-  return 0;
+}
+
+/** Mode 0: download without asking. Falls back to the dialog when it cannot. */
+async function autoUpdate({ latest, release }) {
+  if (isDesktopRuntime()) return installDesktopUpdate(latest);
+  if (isAndroidRuntime()) {
+    const apk = releaseAsset(release, '-android-release.apk');
+    if (!apk) return false;
+    openExternal(apk.url);
+    toast(`正在下载 v${latest} 签名 APK，完成后按系统提示安装。`, 'success', 5200);
+    return true;
+  }
+  try {
+    const registration = await navigator.serviceWorker?.getRegistration?.();
+    if (registration) await registration.update();
+  } catch {
+    // Ignore service worker failures; a plain reload still picks up new files.
+  }
+  toast(`发现新版本 v${latest}，刷新页面即可加载。`, 'info', 5200);
+  return true;
 }
 
 async function checkForUpdates({ manual = false } = {}) {
   if (updateCheckRunning) return;
-  if (!manual && state.settings.updateCheck === false) return;
+  if (!manual && updateMode() === 2) return;
   // Do not replace the startup restore prompt or any dialog the user opened.
   if (!manual && document.body.classList.contains('modal-open')) return;
   updateCheckRunning = true;
   try {
     const release = await new GitHubClient('').getLatestRelease(EDITOR_OWNER, EDITOR_REPO);
     const latest = String(release.tag || '').replace(/^v/i, '');
-    if (!latest) {
-      if (manual) toast('尚未找到已发布的版本。', 'info');
+    const action = planUpdate({
+      mode: updateMode(),
+      manual,
+      platform: updatePlatform(),
+      latest,
+      current: APP_VERSION,
+    });
+    if (action === 'skip') return;
+    if (action === 'none') {
+      if (manual)
+        toast(latest ? `当前版本 v${APP_VERSION} 已是最新。` : '尚未找到已发布的版本。', latest ? 'success' : 'info');
       return;
     }
-    if (compareVersions(latest, APP_VERSION) <= 0) {
-      if (manual) toast(`当前版本 v${APP_VERSION} 已是最新。`, 'success');
-      return;
-    }
+    if (action === 'auto' && (await autoUpdate({ latest, release }))) return;
     openUpdateDialog({ latest, release });
   } catch (error) {
     console.warn('[update] 检查更新失败', error);
@@ -3111,47 +3149,84 @@ async function checkForUpdates({ manual = false } = {}) {
 function openUpdateDialog({ latest, release }) {
   const notes = String(release.body || '').trim();
   const published = release.publishedAt ? new Date(release.publishedAt).toLocaleDateString('zh-CN') : '未知';
-  const body = document.createElement('div');
-  body.innerHTML = `
-    <div class="form-grid">
-      <div class="form-note is-accent">
-        发现新版本 <strong>v${escapeHtml(latest)}</strong>，当前版本 v${escapeHtml(APP_VERSION)}。
-        编辑器<strong>不会自动下载</strong>，请前往 Release 页面手动下载安装。
-      </div>
-      <div class="pr-summary">
-        <div class="pr-summary-row"><span>版本</span><span>${escapeHtml(release.name || `v${latest}`)}</span></div>
-        <div class="pr-summary-row"><span>发布时间</span><span>${escapeHtml(published)}</span></div>
-      </div>
-      ${notes ? `<div class="update-notes">${escapeHtml(notes.slice(0, 1400))}</div>` : ''}
-      <label class="check-row">
-        <input type="checkbox" id="update-disable">
-        <span>不再在启动时检查更新（可随时在设置中重新开启）</span>
-      </label>
+  const androidApk = releaseAsset(release, '-android-release.apk');
+  const desktop = isDesktopRuntime();
+  const android = isAndroidRuntime() && Boolean(androidApk);
+  const releaseUrl = release.url || `https://github.com/${EDITOR_OWNER}/${EDITOR_REPO}/releases`;
+
+  const body = h`<div class="form-grid">
+    <div class="form-note is-accent">
+      发现新版本 <strong>v${latest}</strong>，当前版本 v${APP_VERSION}。
+      ${
+        desktop
+          ? '桌面端可自动下载资源包，重启后生效（exe 本身有变化时仍需重新下载 ZIP）。'
+          : android
+            ? 'Android 会打开签名 APK 的下载地址，下载完成后按系统提示安装（需允许安装未知来源）。'
+            : '网页版会更新离线缓存，刷新页面即可使用新版本。'
+      }
     </div>
-  `;
+    <div class="pr-summary">
+      <div class="pr-summary-row"><span>版本</span><span>${release.name || `v${latest}`}</span></div>
+      <div class="pr-summary-row"><span>发布时间</span><span>${published}</span></div>
+    </div>
+    ${notes ? h`<div class="update-notes">${notes.slice(0, 1400)}</div>` : ''}
+    <label class="check-row">
+      <input type="checkbox" id="update-disable">
+      <span>不再显示此窗口（等同于不再检查更新，可在设置中恢复）</span>
+    </label>
+  </div>`;
+
   const applyDisable = () => {
     if (!body.querySelector('#update-disable')?.checked) return;
-    state.settings.updateCheck = false;
+    state.settings.updateMode = 2;
     saveState(state);
   };
-  const releaseUrl = release.url || `https://github.com/${EDITOR_OWNER}/${EDITOR_REPO}/releases`;
+
+  const primary = async () => {
+    applyDisable();
+    if (desktop && (await installDesktopUpdate(latest))) {
+      modal.close();
+      return;
+    }
+    if (android && androidApk) {
+      openExternal(androidApk.url);
+      toast(`正在下载 v${latest} 签名 APK。`, 'success', 4200);
+      modal.close();
+      return;
+    }
+    if (!desktop && !android) {
+      try {
+        const registration = await navigator.serviceWorker?.getRegistration?.();
+        if (registration) await registration.update();
+      } catch {
+        // Ignore and fall back to a normal reload.
+      }
+      modal.close();
+      location.reload();
+      return;
+    }
+    openExternal(releaseUrl);
+    modal.close();
+  };
+
   const modal = openModal({
     title: `可更新到 v${latest}`,
-    subtitle: '启动时自动检查；仅提示，不下载',
+    subtitle: desktop ? '下载资源包后重启生效' : android ? '下载签名 APK 后安装' : '刷新页面加载新版本',
     body,
     size: 'normal',
     onClose: applyDisable,
     footer: [
       { label: '稍后提醒', className: 'btn-ghost', onClick: () => modal.close() },
       {
-        label: '前往下载',
-        className: 'btn-primary',
+        label: '打开发布页',
+        className: 'btn',
         onClick: () => {
           applyDisable();
           openExternal(releaseUrl);
           modal.close();
         },
       },
+      { label: desktop ? '下载并安装' : android ? '下载 APK' : '刷新页面', className: 'btn-primary', onClick: primary },
     ],
   });
 }
@@ -3587,25 +3662,10 @@ toc: true
 
 /* ------------------------------------------------------------------- PR */
 
-const PR_TYPES = [
-  { id: 'new', label: '新增页面', commitPrefix: 'content: 新增' },
-  { id: 'edit', label: '修改内容', commitPrefix: 'content: 更新' },
-  { id: 'fix', label: '修复引用', commitPrefix: 'content: 修复引用' },
-];
-
-function prTypeOf(id) {
-  return PR_TYPES.find((type) => type.id === id) || PR_TYPES[1];
-}
-
-/** Line diff between the content loaded from GitHub and the current editor state. */
-function buildPrDiff() {
-  const before = joinDocument(state.content.loadedFmRaw || '', state.content.loadedBody || '');
-  const after = assembleDocument();
-  const ops = diffLines(before, after);
-  const stats = diffStats(ops);
-  const rows = collapsedDiff(ops);
-  const html = rows.length
-    ? rows
+/** Render diff rows into the PR dialog's HTML view. */
+function renderPrDiff(diff) {
+  const html = diff.rows.length
+    ? diff.rows
         .map((row) => {
           if (row.type === 'gap') {
             return `<div class="diff-row diff-gap"><span class="diff-gutter"></span>… ${row.count} 行未显示 …</div>`;
@@ -3621,42 +3681,24 @@ function buildPrDiff() {
         })
         .join('')
     : '<p class="diff-empty">文档内容没有变化（可能只调整了路径或待上传资源）。</p>';
-  const pathNote =
-    state.content.loadedPath && state.content.loadedPath !== state.content.path
-      ? `<p class="form-help">路径变更：<code>${escapeHtml(state.content.loadedPath)}</code> → <code>${escapeHtml(state.content.path)}</code>；差异仅比较文档内容。</p>`
-      : '';
-  return { stats, html, pathNote };
+  const pathNote = diff.pathNote ? `<p class="form-help">${escapeHtml(diff.pathNote)}</p>` : '';
+  return { ...diff, html, pathNote };
 }
 
-/** Lightweight PR template generated on the editor side (no repository config). */
-function buildPrBody({ type, note, path, assetPaths, summary, diff }) {
-  const preset = prTypeOf(type);
-  return [
-    '## 变更类型',
-    '',
-    `- [x] ${preset.label}`,
-    '',
-    '## 说明',
-    '',
-    note || '（待填写）',
-    '',
-    '## 变更文件',
-    '',
-    `- \`${path}\``,
-    ...assetPaths.map((asset) => `- \`${asset}\`（新增 / 更新资源）`),
-    '',
-    '## 自查',
-    '',
-    `- [x] 编辑器检查：${summary.errors} 错误，${summary.warnings} 警告`,
-    `- [x] 内容差异：+${diff.added} / −${diff.removed} 行`,
-    '- [ ] 已在预览中确认排版',
-    '',
-    '由 Wikifactory Editor 提交。Content 仓库不要求分支与 base 保持 up-to-date。',
-  ].join('\n');
+function currentPrDiff() {
+  return renderPrDiff(
+    buildPrDiff({
+      before: joinDocument(state.content.loadedFmRaw || '', state.content.loadedBody || ''),
+      after: assembleDocument(),
+      loadedPath: state.content.loadedPath,
+      path: state.content.path,
+    }),
+  );
 }
 
 async function openPrDialog({ prefill = null } = {}) {
   await tokenReady;
+  await flushFmChanges();
   if (!sessionToken) {
     toast('提交 PR 需要 GitHub token，请先在设置中填写。', 'error');
     openSettings();
@@ -3688,12 +3730,12 @@ async function openPrDialog({ prefill = null } = {}) {
       5600,
     );
   } else if (repoIndex.cached) {
-    toast(`网络不可用，使用${repoCacheNote(repoIndex)}的文件树；存在性校验仅供参考。`, 'info', 5200);
+    toast(`网络不可用，使用${repoCacheNote(repoIndex, formatTime)}的文件树；存在性校验仅供参考。`, 'info', 5200);
   }
   lastIssues = issues;
   issuesStale = false;
   updateStats();
-  const summary = summarizeIssues(issues);
+  const summary = issueCounts(issues);
   if (summary.errors > 0) {
     showIssuesDialog(issues);
     toast('存在错误，修复后再提交 PR。', 'error');
@@ -3701,16 +3743,13 @@ async function openPrDialog({ prefill = null } = {}) {
   }
 
   const targetAssets = assets.map((asset) => asset.path);
-  const diff = buildPrDiff();
+  const diff = currentPrDiff();
   const pageTitle = frontmatterData(state.content.fmRaw).title || stripExt(basename(path));
   const typeDefault = prefill?.prType || (state.content.loadedSha ? 'edit' : 'new');
-  const typePreset = prTypeOf(typeDefault);
   const noteDefault = prefill?.prNote || '';
-  const branchDefault =
-    prefill?.branchName ||
-    `wfe/${slugify(stripExt(basename(path)))}-${new Date().toISOString().slice(5, 16).replace(/[-:T]/g, '')}`;
-  const titleDefault = prefill?.prTitle || `${typePreset.commitPrefix} ${pageTitle}`;
-  const commitDefault = prefill?.commitMessage || `${typePreset.commitPrefix} ${pageTitle}`;
+  const branchDefault = prefill?.branchName || defaultBranchName(path);
+  const titleDefault = prefill?.prTitle || prHeadline(typeDefault, pageTitle);
+  const commitDefault = prefill?.commitMessage || prHeadline(typeDefault, pageTitle);
   const prBodyDefault =
     prefill?.prBody ||
     buildPrBody({
@@ -3722,7 +3761,7 @@ async function openPrDialog({ prefill = null } = {}) {
       diff: diff.stats,
     });
   const cacheNotice = repoIndex?.cached
-    ? `<div class="form-note is-warn">离线 / 弱网：文件树来自${escapeHtml(repoCacheNote(repoIndex))}，图标 / 音频 / 站内链接校验可能已过期。网络恢复后重新打开本窗口即可刷新。</div>`
+    ? `<div class="form-note is-warn">离线 / 弱网：文件树来自${escapeHtml(repoCacheNote(repoIndex, formatTime))}，图标 / 音频 / 站内链接校验可能已过期。网络恢复后重新打开本窗口即可刷新。</div>`
     : !repoIndex?.paths
       ? '<div class="form-note is-warn">无法读取仓库文件树：本次仅执行本地规则检查。可以先保存草稿，网络恢复后再提交。</div>'
       : '';
@@ -3771,9 +3810,8 @@ async function openPrDialog({ prefill = null } = {}) {
   const titleInput = body.querySelector('#pr-title');
   const prBodyInput = body.querySelector('#pr-body');
   const regenerate = () => {
-    const preset = prTypeOf(typeSelect.value);
-    commitInput.value = `${preset.commitPrefix} ${pageTitle}`;
-    titleInput.value = `${preset.commitPrefix} ${pageTitle}`;
+    commitInput.value = prHeadline(typeSelect.value, pageTitle);
+    titleInput.value = prHeadline(typeSelect.value, pageTitle);
     prBodyInput.value = buildPrBody({
       type: typeSelect.value,
       note: noteInput.value.trim(),
@@ -3935,20 +3973,8 @@ async function openPrDialog({ prefill = null } = {}) {
   });
 }
 
-/** Content page stem + date + short random hash, e.g. mam-20261023-a1b2c3. */
-function uniqueBranchSuggestion(avoid = '') {
-  const stem = slugify(stripExt(basename(state.content.path)) || 'page');
-  const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const hash = Math.random().toString(16).slice(2, 8);
-    const name = `${stem}-${date}-${hash}`;
-    if (name !== avoid) return name;
-  }
-  return `${stem}-${date}-${Date.now().toString(16).slice(-6)}`;
-}
-
 function openBranchConflictDialog({ branchName, snapshot, message }) {
-  let suggestion = uniqueBranchSuggestion(branchName);
+  let suggestion = uniqueBranchSuggestion(state.content.path, branchName);
   const body = document.createElement('div');
   body.innerHTML = `
     <div class="form-note is-warn">
@@ -3963,7 +3989,7 @@ function openBranchConflictDialog({ branchName, snapshot, message }) {
   `;
   const input = body.querySelector('#conflict-branch');
   body.querySelector('#conflict-suggest').addEventListener('click', () => {
-    suggestion = uniqueBranchSuggestion(input.value.trim() || branchName);
+    suggestion = uniqueBranchSuggestion(state.content.path, input.value.trim() || branchName);
     input.value = suggestion;
     input.focus();
     input.select();
@@ -4081,6 +4107,10 @@ function bindEvents() {
   $('#btn-content-drafts').addEventListener('click', openDraftsDialog);
 
   $('#btn-save').addEventListener('click', () => saveDraft(true));
+  els.fmForm.addEventListener('click', (event) => {
+    if (event.target.closest('#fm-apply')) applyFmChanges({ confirm: true });
+    else if (event.target.closest('#fm-apply-discard')) discardFmChanges();
+  });
   $('#btn-export').addEventListener('click', exportCurrentFile);
   $('#btn-preview').addEventListener('click', openPreview);
   $('#btn-pr').addEventListener('click', () => openPrDialog());
@@ -4346,14 +4376,27 @@ function restoreInitialUi() {
 
   captureSessionBaseline();
   maybePromptRestoreDraft().finally(() => {
-    if (state.settings.updateCheck !== false) {
+    if (Number(state.settings.updateMode) !== 2) {
       setTimeout(() => checkForUpdates(), 900);
     }
   });
 }
 
+/** Web build only: register the offline app shell (PWA). */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  if (window.NL_PORT || isAndroidRuntime()) return;
+  if (!/^https?:$/.test(location.protocol)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register(new URL('sw.js', document.baseURI))
+      .catch((error) => console.warn('[pwa] Service Worker 注册失败', error));
+  });
+}
+
 bindEvents();
 restoreInitialUi();
+registerServiceWorker();
 
 window.__WFE__ = {
   version: APP_VERSION,

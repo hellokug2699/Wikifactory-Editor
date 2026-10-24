@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { VERSION } from './version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const desktopDir = path.join(root, 'desktop');
@@ -11,13 +12,14 @@ const resourcesDir = path.join(desktopDir, 'resources');
 const stageDir = path.join(desktopDir, '.stage');
 const binDir = path.join(desktopDir, 'bin');
 const cacheDir = path.join(desktopDir, '.cache');
-const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const version = VERSION;
 const neutralinoVersion = '6.10.0';
 const releaseZip = path.join(cacheDir, `neutralinojs-v${neutralinoVersion}.zip`);
 const distDir = path.join(root, 'dist');
 const bundleName = 'Wikifactory-Editor';
 const stageApp = path.join(stageDir, bundleName);
 const outZip = path.join(distDir, `Wikifactory-Editor-v${version}-windows-x64.zip`);
+const outResources = path.join(distDir, `Wikifactory-Editor-v${version}-windows-x64-resources.neu`);
 
 function ensureBinaries() {
   fs.mkdirSync(binDir, { recursive: true });
@@ -83,6 +85,9 @@ fs.mkdirSync(stageApp, { recursive: true });
 const stagedExe = path.join(stageApp, `${bundleName}.exe`);
 fs.copyFileSync(builtExe, stagedExe);
 fs.copyFileSync(builtResources, path.join(stageApp, 'resources.neu'));
+// Published separately so the in-app updater can fetch only the resource bundle.
+fs.mkdirSync(distDir, { recursive: true });
+fs.copyFileSync(builtResources, outResources);
 
 let signed = false;
 if (process.env.WINDOWS_SIGNING_P12) {
@@ -120,6 +125,7 @@ execFileSync('zip', ['-r', '-9', '-q', outZip, bundleName], { cwd: stageDir, std
 
 console.log(`[desktop] ${path.relative(root, outZip)} (${(fs.statSync(outZip).size / 1024 / 1024).toFixed(2)} MB)`);
 console.log(`[desktop] sha256 ${sha256(outZip)}`);
+console.log(`[desktop] ${path.relative(root, outResources)} sha256 ${sha256(outResources)}`);
 console.log(`[desktop] exe (${signed ? 'signed' : 'unsigned'}) sha256 ${sha256(stagedExe)}`);
 console.log('[desktop] 解压后双击运行；需要 WebView2 Runtime。');
 

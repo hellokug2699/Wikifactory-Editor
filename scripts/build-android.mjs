@@ -3,12 +3,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { VERSION, versionCodeFor } from './version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const androidDir = path.join(root, 'android');
 const appDir = path.join(root, 'app');
 const assetsDir = path.join(androidDir, 'app', 'src', 'main', 'assets');
-const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const version = VERSION;
 const distDir = path.join(root, 'dist');
 const outFile = path.join(distDir, `Wikifactory-Editor-v${version}-android.apk`);
 
@@ -40,7 +41,13 @@ fs.mkdirSync(assetsDir, { recursive: true });
 fs.cpSync(appDir, assetsDir, { recursive: true });
 
 console.log('[android] 构建 debug-signed APK…');
-const gradleArgs = ['assembleDebug', '--no-daemon', '--console=plain'];
+const gradleArgs = [
+  'assembleDebug',
+  '--no-daemon',
+  '--console=plain',
+  `-PappVersionName=${VERSION}`,
+  `-PappVersionCode=${versionCodeFor(VERSION)}`,
+];
 // Gradle does not read the standard proxy environment variables; pass them as JVM properties.
 const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
 if (proxyUrl) {

@@ -19,9 +19,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { VERSION, versionCodeFor } from './version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const version = VERSION;
 const distDir = path.join(root, 'dist');
 
 const keystore = process.env.ANDROID_KEYSTORE || '';
@@ -161,7 +162,15 @@ fs.writeFileSync(path.join(androidDir, 'local.properties'), `sdk.dir=${androidHo
 fs.rmSync(assetsDir, { recursive: true, force: true });
 fs.cpSync(path.join(root, 'app'), assetsDir, { recursive: true });
 
-const gradleArgs = ['assembleRelease', '-x', 'lintVitalRelease', '--no-daemon', '--console=plain'];
+const gradleArgs = [
+  'assembleRelease',
+  '-x',
+  'lintVitalRelease',
+  '--no-daemon',
+  '--console=plain',
+  `-PappVersionName=${VERSION}`,
+  `-PappVersionCode=${versionCodeFor(VERSION)}`,
+];
 const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
 if (proxyUrl) {
   try {

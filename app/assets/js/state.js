@@ -2,8 +2,8 @@
 
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
-/** Kept in sync with package.json by scripts/selftest.mjs. */
-export const APP_VERSION = '1.2.3';
+/** Single source: scripts/version.mjs generates version.js. */
+export { APP_VERSION, ANDROID_VERSION_CODE } from './version.js';
 
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';
@@ -22,7 +22,7 @@ export function defaultState() {
       fontSize: 14.5,
       wrap: true,
       rememberToken: false,
-      updateCheck: true,
+      updateMode: 1,
       exitBehavior: 'ask',
       hideStatusBar: false,
       prAck: false,
@@ -76,7 +76,12 @@ function migrate(parsed) {
     // Legacy plaintext tokens are always dropped; the encrypted store replaces them.
     delete merged.settings.token;
     if (typeof merged.settings.rememberToken !== 'boolean') merged.settings.rememberToken = false;
-    if (typeof merged.settings.updateCheck !== 'boolean') merged.settings.updateCheck = true;
+    if (typeof merged.settings.updateCheck === 'boolean') {
+      merged.settings.updateMode = merged.settings.updateCheck ? 1 : 2;
+      delete merged.settings.updateCheck;
+    }
+    if (![0, 1, 2].includes(Number(merged.settings.updateMode))) merged.settings.updateMode = 1;
+    merged.settings.updateMode = Number(merged.settings.updateMode);
     if (!['ask', 'save', 'discard'].includes(merged.settings.exitBehavior)) merged.settings.exitBehavior = 'ask';
     if (typeof merged.settings.hideStatusBar !== 'boolean') merged.settings.hideStatusBar = false;
     if (typeof merged.settings.prAck !== 'boolean') merged.settings.prAck = false;

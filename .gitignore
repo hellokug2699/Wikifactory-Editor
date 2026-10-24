@@ -10,7 +10,7 @@ android/.kotlin/
 android/app/build/
 android/local.properties
 android/app/src/main/assets/
-dist/web/
+dist/
 # Debug-signed APKs are local test builds; only the release-signed APK is published.
 dist/*-android.apk
 *.log

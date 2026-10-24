@@ -6,6 +6,18 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.2.4 质量更新
+
+- **拆分 main.js**：抽出 `dom.js`（`h()` 模板函数，默认转义）、`pr.js`（PR 模板 / 分支名 / diff 数据）、`repo-cache.js`（离线文件树缓存）、`issues.js`（问题分组与行内诊断映射）、`toolbar.js`、`frontmatter-form.js`；`main.js` 只保留 UI 编排，新增逻辑可以直接写单测。
+- **YAML 真解析器**：frontmatter 改用 `yaml` 包（esbuild 打包为 `vendor/yaml.bundle.js`），保留注释、块标量与未知字段；`tags` 仍以 `[攻略, 建筑]` 形式写回。
+- **表单显式应用**：编辑表单不再 300 ms 自动覆盖 YAML，而是显示「待应用：标题 / 分类…」工具条；点「应用更改」后先展示 frontmatter diff 再写入，也可一键放弃。保存草稿 / 预览 / 提交 PR 时会自动应用，避免遗漏。
+- **版本单一来源**：新增 `scripts/version.mjs`（`npm run version:check / version:sync`），统一生成 `app/assets/js/version.js`，并校验 `package.json`、`package-lock.json`、`desktop/neutralino.config.json`、`build.gradle`、`updates/desktop.json` 与 README；Android `versionCode` 由版本号推导（major×10000 + minor×100 + patch），CI 构建时通过 Gradle 属性注入。
+- **分发重做**：交付产物移出 git（`dist/` 已加入 `.gitignore`，只发布到 Releases + Actions artifact）。
+- **自动更新**：设置新增「更新方式」0 自动下载 / 1 提示 / 2 不检查，更新窗口支持「不再显示此窗口」。桌面端通过 Neutralino `updater` 下载 `resources.neu`，重启生效；Android 打开签名 APK 下载地址（需允许安装未知来源）；网页版刷新 Service Worker 缓存。
+- **Web PWA**：新增 `manifest.webmanifest` 与 `sw.js`，支持安装到桌面 / 主屏与离线打开；不再依赖 `serve.mjs`，用任意静态服务器托管即可（需 https 或 localhost）。
+- **测试升级**：`happy-dom` + `node:test` 覆盖 `h()`、frontmatter 表单、工具栏、PR 模板、仓库缓存与问题映射；`setYamlField` 增加 60 组 property-based roundtrip（保证未知字段 / 注释 / 块标量不丢）；Playwright 主链路（加载 → 编辑 → 检查 → 预览 → PR mock）见 `npm run test:e2e`。
+- 版本号：**1.2.4**（Android versionCode 10204）。
+
 ## v1.2.3 功能修复
 
 - **修复桌面端 exe 无法启动**：Windows 分发改为 **便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`）**，不再把资源附加到 PE 尾部。旧方案把约 1.2 MB 资源嵌入 exe，容易被杀毒软件当作自解压壳拦截，也让部分机器无法加载资源。`resources.neu` 采用 Neutralinojs 官方默认的资源加载方式，已在同源构建上验证可正常启动并返回页面。
@@ -24,28 +36,18 @@
 - **工程化底线**：新增 ESLint（flat config）+ Prettier 与 `npm run lint`；新增 `.github/workflows/ci.yml`（push / PR 运行 `npm ci && npm run lint && npm test`）。移除遗留的 `editor.js`、`repoSlug` 与未使用的工具函数，并清理不再引用的 CSS 变量。
 - 版本号：**1.2.2**（Android versionCode 14）。
 
-## v1.2.1 质量更新
+> 更早的版本记录（v1.1.1 – v1.2.1）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
 
-- **音频 / 嵌入的来源说明与降级提示**：预览中的嵌入块会显示「来源：YouTube · youtube/ID」以及「若无法播放，请点此打开原链接」；音频加载失败时会明确说明可能的原因（文件不存在 / 浏览器不支持 OGG），并提供「打开原文件」入口，而不是只显示一个空白的播放器。
-- **嵌入链接「粘贴即预览」**：粘贴完整链接后，对话框先显示识别结果（来源、视频 ID、可获取的标题）与原链接，编辑者确认后再转换为短标记 `[[Embed/youtube/ID|标题]]`，避免粘错链接后手动改标记。YouTube / Vimeo 标题通过官方 oEmbed 读取，失败时可手动填写。
-- **离线 / 弱网体验**：Content 仓库文件树会缓存在本机（7 天，按分支区分）。网络不可用或请求超时时，图标 / 音频 / 站内链接校验会回退到缓存，并在相关窗口标注「基于本地缓存，可能过期」；PR 窗口新增「保存草稿」，可先保留修改，等网络恢复后再提交。GitHub API 请求新增 20 秒超时，避免弱网下无限等待。
-- **PR 模板与提交信息规范**：PR 窗口新增「变更类型（新增页面 / 修改内容 / 修复引用）」与必填「说明」，提交信息、PR 标题与 PR 说明按模板自动生成，仍可手动调整。模板完全由编辑器侧生成，不依赖仓库配置。
-- **站内链接目标校验**：复用文件树把 `[[页面|显示文字]]` 的目标解析到真实页面 / 游戏 / 分类 / 文件名；缺失时给出警告（不阻断提交，目标可能是有意提前占位或使用别名）。
-- **内容差异预览**：PR 窗口展示「加载时的原始内容 vs 当前编辑内容」的行级差异（+ / − 行数、上下文折叠、路径变更提示），帮助贡献者在提交前自查。
-- **README 更新日志精简**：历史版本移至 [CHANGELOG.md](CHANGELOG.md)，README 只保留最近几个版本，降低新用户的信息负担。
-- 版本号：**1.2.1**（Android versionCode 13）。
-
-> 更早的版本记录（v1.1.1 – v1.2.0）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
-
-## 下载（v1.2.3）
+## 下载（v1.2.4）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.2.3-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.3/Wikifactory-Editor-v1.2.3-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
-| Android（签名） | [Wikifactory-Editor-v1.2.3-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.3/Wikifactory-Editor-v1.2.3-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
-| 网页版 | [Wikifactory-Editor-v1.2.3-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.3/Wikifactory-Editor-v1.2.3-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.2.4-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
+| Windows 更新包 | [Wikifactory-Editor-v1.2.4-windows-x64-resources.neu](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-windows-x64-resources.neu) | 供桌面端自动更新使用；手动更新请下载 ZIP |
+| Android（签名） | [Wikifactory-Editor-v1.2.4-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级 |
+| 网页版（PWA） | [Wikifactory-Editor-v1.2.4-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.4/Wikifactory-Editor-v1.2.4-web.zip) | 解压后用任意静态服务器托管（https 或 localhost）；可安装到桌面并离线打开 |
 
-也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
+产物只发布在 [Releases](https://github.com/hellokug2699/Wikifactory-Editor/releases) 与 Actions artifact，仓库不再保存 `dist/` 二进制。
 
 > Windows 不再发布单文件 exe。单文件版本把资源附加在 exe 末尾，容易被杀毒软件误判，也可能在部分机器上启动失败；ZIP 中的 `resources.neu` 是 Neutralinojs 的默认资源方式。
 >
@@ -98,11 +100,11 @@ export ANDROID_KEYSTORE_PASSWORD='***'
 export ANDROID_KEY_ALIAS=wikifactory
 export ANDROID_KEY_PASSWORD='***'
 
-# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.3-android-release.apk）
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.4-android-release.apk）
 npm run build:android:release
 
 # 也可以只重签已有 APK（不重新构建）
-node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.3-android.apk
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.4-android.apk
 ```
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
@@ -129,15 +131,9 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.3-android.ap
 
 ### 校验和
 
-见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
+`dist/SHA256SUMS.txt` 不再入库。每次发布时，CI 会把各产物的 SHA-256 写入 Release 说明，并随 Actions artifact 保留；下载后可用 `sha256sum -c`（Linux / macOS）或 `Get-FileHash`（Windows）核对。
 
-```
-3f74d7cdc382db5c19e2777579d6cbda9ddd21a3d40a987b8e98764f477350f2  Wikifactory-Editor-v1.2.3-windows-x64.zip
-69699e87861c139a7b8685e37a975f434c616d91ae056d87c45d19fca2edfd56  Wikifactory-Editor-v1.2.3-android-release.apk
-039c99e568eaf17a65099bff3fe6ec0ce3c15b7b5f7b6188ba9595082b440095  Wikifactory-Editor-v1.2.3-web.zip
-```
-
-签名版 APK 由 CI 在发布 Release 后附加（其 SHA-256 会同步更新到 `dist/SHA256SUMS.txt`）；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
+签名版 APK 由 CI 在发布 Release 后附加（其 SHA-256 会同步写入 Release 说明）；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
 
 ## 功能
 

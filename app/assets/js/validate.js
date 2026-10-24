@@ -54,6 +54,17 @@ export const GAME_IMAGE_DIR = IMAGE_DIR;
 export const GAME_ICON_DIR = ICON_DIR;
 export const GAME_AUDIO_DIR = AUDIO_DIR;
 
+import {
+  applyYamlChanges,
+  frontmatterData,
+  parseYaml,
+  parseYamlLite,
+  setYamlField,
+  yamlFieldValue,
+} from './frontmatter.js';
+
+export { applyYamlChanges, frontmatterData, parseYaml, parseYamlLite, setYamlField, yamlFieldValue };
+
 export const CALLOUTS = {
   note: { label: '说明', tone: 'neutral' },
   tip: { label: '提示', tone: 'success' },
@@ -156,135 +167,6 @@ export function joinDocument(raw, body) {
   const cleanBody = String(body || '').replace(/^\n+/, '');
   if (!cleanRaw) return cleanBody;
   return `---\n${cleanRaw}\n---\n\n${cleanBody}`;
-}
-
-function stripQuotes(value) {
-  if (value.length >= 2) {
-    const head = value[0];
-    const tail = value[value.length - 1];
-    if ((head === '"' && tail === '"') || (head === "'" && tail === "'")) return value.slice(1, -1);
-  }
-  return value;
-}
-
-function splitInlineList(value) {
-  const inner = value.slice(1, -1).trim();
-  if (!inner) return [];
-  return inner
-    .split(',')
-    .map((part) => coerceValue(part.trim()))
-    .filter((item) => item !== '' && item !== null && item !== undefined);
-}
-
-function coerceValue(raw) {
-  const value = raw.trim();
-  if (!value) return '';
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return stripQuotes(value);
-  }
-  if (value.startsWith('[') && value.endsWith(']')) return splitInlineList(value);
-  if (/^(true|false)$/.test(value)) return value === 'true';
-  if (/^(null|~)$/i.test(value)) return null;
-  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
-  return value.split(' #')[0].trim();
-}
-
-/** Minimal top-level YAML reader (frontmatter fields only). */
-export function parseYamlLite(raw) {
-  const map = {};
-  const issues = [];
-  const lines = String(raw || '').split(/\r?\n/);
-  let currentKey = null;
-
-  lines.forEach((line, index) => {
-    if (!line.trim() || line.trim().startsWith('#')) return;
-    if (/^\t/.test(line)) {
-      issues.push(issue('error', 'YAML 不能使用 Tab 缩进', { line: index + 1 }));
-      return;
-    }
-    const listMatch = /^\s*-\s*(.*)$/.exec(line);
-    if (listMatch && currentKey) {
-      if (!Array.isArray(map[currentKey])) map[currentKey] = [];
-      map[currentKey].push(coerceValue(listMatch[1]));
-      return;
-    }
-    const match = /^([A-Za-z0-9_.-]+)\s*:\s*(.*)$/.exec(line);
-    if (!match) return;
-    const [, key, rest] = match;
-    currentKey = key;
-    if (Object.prototype.hasOwnProperty.call(map, key)) {
-      issues.push(issue('warn', `frontmatter 字段重复：${key}`, { line: index + 1 }));
-    }
-    map[key] = rest.trim() ? coerceValue(rest) : '';
-  });
-
-  return { map, issues };
-}
-
-export function frontmatterData(raw) {
-  const { map, issues } = parseYamlLite(raw);
-  return {
-    title: typeof map.title === 'string' ? map.title : '',
-    description: typeof map.description === 'string' ? map.description : '',
-    tags: Array.isArray(map.tags) ? map.tags.map(String) : [],
-    order: typeof map.order === 'number' ? map.order : null,
-    draft: map.draft === true,
-    updated: typeof map.updated === 'string' ? map.updated : '',
-    toc: map.toc === false ? false : true,
-    map,
-    issues,
-  };
-}
-
-function yamlScalar(value) {
-  if (typeof value === 'number') return String(value);
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  const text = String(value).replace(/\s*\n+\s*/g, ' ');
-  if (!text) return '';
-  if (/^[a-zA-Z0-9\u4e00-\u9fa5][^:#]*$/.test(text) && !/^\s|\s$/.test(text)) return text;
-  return `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
-}
-
-/** Update one top-level frontmatter field without touching the rest of the YAML. */
-export function setYamlField(raw, key, value) {
-  const lines = String(raw || '').split(/\r?\n/);
-  const keyRe = new RegExp(`^${escapeRegExp(key)}\\s*:`);
-  let index = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (keyRe.test(lines[i])) {
-      index = i;
-      break;
-    }
-  }
-
-  let rendered;
-  if (Array.isArray(value)) {
-    rendered = value.length ? `[${value.map((item) => yamlScalar(item)).join(', ')}]` : '';
-  } else if (value === null || value === undefined || value === '') {
-    rendered = '';
-  } else {
-    rendered = yamlScalar(value);
-  }
-
-  if (index === -1) {
-    if (rendered) lines.push(`${key}: ${rendered}`);
-    return lines.join('\n').replace(/^\n+|\n+$/g, '');
-  }
-
-  // Remove an existing block value (indented list / multiline scalar).
-  let end = index + 1;
-  while (end < lines.length && (/^\s+/.test(lines[end]) || /^\s*-/.test(lines[end]))) end += 1;
-
-  if (!rendered) {
-    lines.splice(index, end - index);
-  } else {
-    lines.splice(index, end - index, `${key}: ${rendered}`);
-  }
-  return lines.join('\n').replace(/^\n+|\n+$/g, '');
-}
-
-export function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /* ------------------------------------------------------------------- paths */

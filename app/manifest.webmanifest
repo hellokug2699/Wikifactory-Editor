@@ -1,0 +1,26 @@
+{
+  "name": "Wikifactory Editor",
+  "short_name": "WF Editor",
+  "description": "Wikifactory Content 贡献者编辑器：Markdown / Wiki 语法 / 客户端 GitHub PR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080d1a",
+  "theme_color": "#4f7cff",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "assets/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

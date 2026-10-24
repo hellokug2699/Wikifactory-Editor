@@ -1,6 +1,6 @@
 {
   "name": "wikifactory-editor",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "description": "Wikifactory Content contributor editor with syntax highlighting and client-side GitHub PR flow.",
   "type": "module",
@@ -11,16 +11,20 @@
     "build:android": "node scripts/build-android.mjs",
     "build:android:release": "node scripts/android-release.mjs",
     "sign:windows": "node scripts/sign-windows.mjs",
-    "test": "node scripts/selftest.mjs && node scripts/github-selftest.mjs && node scripts/token-selftest.mjs",
-    "lint": "eslint . && prettier --check \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"eslint.config.js\"",
-    "lint:fix": "eslint . --fix && prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"eslint.config.js\"",
-    "format": "prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"eslint.config.js\"",
+    "test": "node scripts/version.mjs --check && node scripts/selftest.mjs && node scripts/github-selftest.mjs && node scripts/token-selftest.mjs && node --test tests/*.test.mjs",
+    "lint": "eslint . && prettier --check \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"tests/**/*.mjs\" \"eslint.config.js\"",
+    "lint:fix": "eslint . --fix && prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"tests/**/*.mjs\" \"eslint.config.js\"",
+    "format": "prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"tests/**/*.mjs\" \"eslint.config.js\"",
     "build:vendor": "node scripts/build-vendor.mjs",
     "rules:hash": "node scripts/rules-sync.mjs --hash",
     "rules:check": "node scripts/rules-sync.mjs --check",
     "rules:sync": "node scripts/rules-sync.mjs --write",
     "tags:check": "node scripts/tags-sync.mjs --check",
-    "tags:sync": "node scripts/tags-sync.mjs --write"
+    "tags:sync": "node scripts/tags-sync.mjs --write",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:e2e": "node tests/e2e/main-flow.mjs",
+    "version:check": "node scripts/version.mjs --check",
+    "version:sync": "node scripts/version.mjs --sync"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.4",
@@ -42,7 +46,10 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
     "globals": "^17.13.0",
-    "prettier": "^3.9.10"
+    "happy-dom": "^21.0.4",
+    "playwright-core": "^1.64.1",
+    "prettier": "^3.9.10",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=20"
