@@ -28,3 +28,9 @@ keystore.properties
 .env.*
 *.secret
 *.idsig
+
+# Local agent harness config (absolute paths, per-machine only)
+harness.local.json
+
+# Sandbox scratch (screenshots, temporary uploads)
+.tmp/

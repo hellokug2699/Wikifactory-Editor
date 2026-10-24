@@ -2,7 +2,15 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 3 个版本的摘要。
 
-## 未发布（v1.2.6）
+## v1.2.3 功能修复
+
+- **修复桌面端 exe 无法启动**：Windows 分发改为 **便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`）**，不再把资源附加到 PE 尾部。旧方案把约 1.2 MB 资源嵌入 exe，容易被杀毒软件当作自解压壳拦截，也让部分机器无法加载资源。`resources.neu` 采用 Neutralinojs 官方默认的资源加载方式，已在同源构建上验证可正常启动并返回页面。
+- **启动失败可诊断**：桌面端配置启用 `logging`，启动异常会在 exe 同目录留下 `neutralinojs.log`；ZIP 内的 `README.txt` 列出 WebView2 Runtime、Windows「解除锁定」与杀毒软件白名单等排查步骤。
+- **exe 自签名**：新增 `scripts/sign-windows.mjs`（`npm run sign:windows`），用自签名证书对 exe 做 Authenticode 签名；构建时设置 `WINDOWS_SIGNING_P12` 即自动签名并打印证书指纹。SmartScreen 仍会拦截（自签名不受信任），但「文件属性 → 数字签名」可以分辨 exe 是否被篡改。公开证书见 [desktop/codesign/wikifactory-editor-codesign.crt](desktop/codesign/wikifactory-editor-codesign.crt)，SHA-256 指纹 `56:94:8A:28:78:1E:1C:3A:9E:1F:9E:B3:D1:7D:3F:50:C0:67:75:33:00:10:D6:33:11:AF:AF:DF:CE:80:5A:51`。
+- **移除未签名 APK**：`dist/` 与所有 GitHub Release 中的 debug 签名 APK 已删除，只保留 CI 用 release keystore 签名的 `-android-release.apk`。`build:android` 仍可在本地生成 debug 包，但会被 `.gitignore` 排除。
+- 版本号：**1.2.3**（Android versionCode 15）。
+
+## v1.2.6 质量更新
 
 - **跨平台行尾**：新增 `.gitattributes`（`* text=auto eol=lf`）与 `.editorconfig`；`version.mjs` / `editor-config.mjs` 的生成文件校验按 LF 归一化。修复 Windows 检出后 `npm test` 与 `npm run lint` 必然失败的问题；CI 增加 Windows 矩阵。
 - **PWA 可靠性**：`sw.js` 预缓存全部运行时资源（此前没有预缓存任何 JS），缓存桶按构建版本注入，应用代码改网络优先，安装后首次离线即可用；检测到新版本时提示刷新。

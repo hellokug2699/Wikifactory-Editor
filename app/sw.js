@@ -1,8 +1,9 @@
 /* Wikifactory Editor service worker: offline app shell for the web build.
  *
- * __WFE_VERSION__ is replaced by scripts/build-web.mjs at build time so every
- * release gets a fresh cache bucket. The precache list must cover every file
- * the app needs on a cold, offline start; `tests/sw.test.mjs` enforces that.
+ * The VERSION placeholder below is replaced by scripts/build-web.mjs at build
+ * time, so every release gets a fresh cache bucket. The precache list must cover
+ * every file the app needs on a cold, offline start; `tests/sw.test.mjs` ensures
+ * that it stays complete.
  */
 const VERSION = '__WFE_VERSION__';
 const CACHE = `wfe-${VERSION}`;

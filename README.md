@@ -6,16 +6,7 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
-## v1.2.5 质量更新
-
-- **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。站点侧部署 `/.well-known/assetlinks.json`（由私有 Core 仓库的 `public/.well-known/assetlinks.json` 提供）并通过 App Links 校验后，`wikifactory.top/games/…` 会直接唤起 App；若校验未通过，系统会退回「用其他应用打开」的询问框（不会静默失败）。应用内点击站内链接也走同一套深链解析。网页版可用 `?path=games/…` 直达。
-- **审阅闭环**：PR 创建后按钮变为 `PR #编号`，可随时打开「PR 审阅状态」查看 state / 审阅结论 / 批准·要求修改·评论·待审阅数量 / 评论与审阅评论数 / 变更行数，并每 30 秒刷新。存在冲突时不再建议「换个分支名」，而是给出 `git merge`、`git rebase`、`--force-with-lease` 的完整步骤与 GitHub 网页端替代方案。
-- **批量操作**：侧栏新增「批量操作」。**批量编辑**把多个页面放进编辑队列，逐页修改后汇总成一个 PR（切换页面时自动保留队列内容）；**批量重命名**一次改多个页面，并扫描同游戏目录自动改写指向这些页面的 `[[…]]` 站内链接（代码块与行内代码不动），最终一个 PR 内完成改名 + 链接更新 + 旧文件删除。
-- **i18n 与无障碍**：新增 `i18n.js`（zh / en），界面控件、工具栏、设置与 v1.2.5 新窗口全部双语，缺失条目回退中文。CSP 收窄：`img-src` / `media-src` 只允许 `raw.githubusercontent.com` 与本机，`frame-src` 仍只放开 YouTube / 哔哩哔哩 / Vimeo；`frame-ancestors 'none'` 与 `X-Frame-Options: DENY` 通过 `app/_headers` 下发（浏览器忽略 meta 里的 frame-ancestors）。提交 / 批量改名等 busy 期间 Esc 与点击遮罩不再关闭窗口；toast 区域补 `role="status"` 与 `aria-live`。
-- **配置化**：新增仓库根 `editor-config.json`（Content owner/repo/branch、Release 仓库、保留路径与上传上限），构建时由 `scripts/editor-config.mjs` 生成带 SHA-256 与 owner 白名单的 `editor-config.js`。运行时先校验哈希：仓库地址与内置值一致时直接应用；若指向其他仓库且哈希不符，**不会自动切换**，而是在侧栏「编辑范围」中等待确认（批准结果按配置哈希记住）。`rules.maxUploadMb` 会真正限制上传大小；`rules.reservedPaths` 必须与共享规则 `content-rules.js` 一致（它是断言，不是第三份副本）。**迁移 Content 仓库只需改这个 JSON 并在客户端确认，不必发新版**。
-- 版本号：**1.2.5**（Android versionCode 10205）。
-
-## 稳定性修复（未发布，v1.2.6 待发）
+## v1.2.6 质量更新
 
 - **跨平台**：新增 `.gitattributes` / `.editorconfig`，生成文件校验统一按 LF 归一化；CI 增加 Windows 矩阵。修复 Windows 检出后 `npm test` / `npm run lint` 直接失败的问题。
 - **PWA 离线**：Service Worker 预缓存全部运行资源，缓存桶按版本注入；应用代码改为网络优先，安装后首次离线即可打开。
@@ -25,6 +16,17 @@
 - **深链安全**：拒绝 `.` / `..` / 空段 / 反斜杠 / 控制字符，加载前再校验一次仓库路径。
 - **UI 转义**：模态框 `subtitle` 与确认框默认转义；预览中的 `[[页面]]` 点击可在应用内跳转。
 - **工程**：e2e 支持 Windows / macOS / Linux 的 Chromium 查找并接入 CI；新增 desktop + web 发布 workflow。
+- **签名证书轮换**：Windows Authenticode 自签名证书更换为新的 10 年期证书（SHA-256 `E7:2E:47:AB:56:3B:33:9B:14:8F:E3:EE:0E:F0:84:4C:7C:22:EE:54:A1:B9:20:F1:38:A4:2E:EC:BE:B6:0D:44`）。旧证书的私钥曾被工作区备份提交到一个临时分支，该分支已删除；新证书同样自签名，SmartScreen 仍会提示「未知发布者」。
+- 版本号：**1.2.6**（Android versionCode 10206）。
+
+## v1.2.5 质量更新
+
+- **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。站点侧部署 `/.well-known/assetlinks.json`（由私有 Core 仓库的 `public/.well-known/assetlinks.json` 提供）并通过 App Links 校验后，`wikifactory.top/games/…` 会直接唤起 App；若校验未通过，系统会退回「用其他应用打开」的询问框（不会静默失败）。应用内点击站内链接也走同一套深链解析。网页版可用 `?path=games/…` 直达。
+- **审阅闭环**：PR 创建后按钮变为 `PR #编号`，可随时打开「PR 审阅状态」查看 state / 审阅结论 / 批准·要求修改·评论·待审阅数量 / 评论与审阅评论数 / 变更行数，并每 30 秒刷新。存在冲突时不再建议「换个分支名」，而是给出 `git merge`、`git rebase`、`--force-with-lease` 的完整步骤与 GitHub 网页端替代方案。
+- **批量操作**：侧栏新增「批量操作」。**批量编辑**把多个页面放进编辑队列，逐页修改后汇总成一个 PR（切换页面时自动保留队列内容）；**批量重命名**一次改多个页面，并扫描同游戏目录自动改写指向这些页面的 `[[…]]` 站内链接（代码块与行内代码不动），最终一个 PR 内完成改名 + 链接更新 + 旧文件删除。
+- **i18n 与无障碍**：新增 `i18n.js`（zh / en），界面控件、工具栏、设置与 v1.2.5 新窗口全部双语，缺失条目回退中文。CSP 收窄：`img-src` / `media-src` 只允许 `raw.githubusercontent.com` 与本机，`frame-src` 仍只放开 YouTube / 哔哩哔哩 / Vimeo；`frame-ancestors 'none'` 与 `X-Frame-Options: DENY` 通过 `app/_headers` 下发（浏览器忽略 meta 里的 frame-ancestors）。提交 / 批量改名等 busy 期间 Esc 与点击遮罩不再关闭窗口；toast 区域补 `role="status"` 与 `aria-live`。
+- **配置化**：新增仓库根 `editor-config.json`（Content owner/repo/branch、Release 仓库、保留路径与上传上限），构建时由 `scripts/editor-config.mjs` 生成带 SHA-256 与 owner 白名单的 `editor-config.js`。运行时先校验哈希：仓库地址与内置值一致时直接应用；若指向其他仓库且哈希不符，**不会自动切换**，而是在侧栏「编辑范围」中等待确认（批准结果按配置哈希记住）。`rules.maxUploadMb` 会真正限制上传大小；`rules.reservedPaths` 必须与共享规则 `content-rules.js` 一致（它是断言，不是第三份副本）。**迁移 Content 仓库只需改这个 JSON 并在客户端确认，不必发新版**。
+- 版本号：**1.2.5**（Android versionCode 10205）。
 
 ## v1.2.4 质量更新
 
@@ -38,24 +40,16 @@
 - **测试升级**：`happy-dom` + `node:test` 覆盖 `h()`、frontmatter 表单、工具栏、PR 模板、仓库缓存与问题映射；`setYamlField` 增加 60 组 property-based roundtrip（保证未知字段 / 注释 / 块标量不丢）；Playwright 主链路（加载 → 编辑 → 检查 → 预览 → PR mock）见 `npm run test:e2e`。
 - 版本号：**1.2.4**（Android versionCode 10204）。
 
-## v1.2.3 功能修复
+> 更早的版本记录（v1.1.1 – v1.2.3）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
 
-- **修复桌面端 exe 无法启动**：Windows 分发改为 **便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`）**，不再把资源附加到 PE 尾部。旧方案把约 1.2 MB 资源嵌入 exe，容易被杀毒软件当作自解压壳拦截，也让部分机器无法加载资源。`resources.neu` 采用 Neutralinojs 官方默认的资源加载方式，已在同源构建上验证可正常启动并返回页面。
-- **启动失败可诊断**：桌面端配置启用 `logging`，启动异常会在 exe 同目录留下 `neutralinojs.log`；ZIP 内的 `README.txt` 列出 WebView2 Runtime、Windows「解除锁定」与杀毒软件白名单等排查步骤。
-- **exe 自签名**：新增 `scripts/sign-windows.mjs`（`npm run sign:windows`），用自签名证书对 exe 做 Authenticode 签名；构建时设置 `WINDOWS_SIGNING_P12` 即自动签名并打印证书指纹。SmartScreen 仍会拦截（自签名不受信任），但「文件属性 → 数字签名」可以分辨 exe 是否被篡改。公开证书见 [desktop/codesign/wikifactory-editor-codesign.crt](desktop/codesign/wikifactory-editor-codesign.crt)，SHA-256 指纹 `56:94:8A:28:78:1E:1C:3A:9E:1F:9E:B3:D1:7D:3F:50:C0:67:75:33:00:10:D6:33:11:AF:AF:DF:CE:80:5A:51`。
-- **移除未签名 APK**：`dist/` 与所有 GitHub Release 中的 debug 签名 APK 已删除，只保留 CI 用 release keystore 签名的 `-android-release.apk`。`build:android` 仍可在本地生成 debug 包，但会被 `.gitignore` 排除。
-- 版本号：**1.2.3**（Android versionCode 15）。
-
-> 更早的版本记录（v1.1.1 – v1.2.2）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
-
-## 下载（v1.2.5）
+## 下载（v1.2.6）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.2.5-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
-| Windows 更新包 | [Wikifactory-Editor-v1.2.5-windows-x64-resources.neu](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-windows-x64-resources.neu) | 供桌面端自动更新使用；手动更新请下载 ZIP |
-| Android（签名） | [Wikifactory-Editor-v1.2.5-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级 |
-| 网页版（PWA） | [Wikifactory-Editor-v1.2.5-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.5/Wikifactory-Editor-v1.2.5-web.zip) | 解压后用任意静态服务器托管（https 或 localhost）；可安装到桌面并离线打开 |
+| Windows | [Wikifactory-Editor-v1.2.6-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.6/Wikifactory-Editor-v1.2.6-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
+| Windows 更新包 | [Wikifactory-Editor-v1.2.6-windows-x64-resources.neu](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.6/Wikifactory-Editor-v1.2.6-windows-x64-resources.neu) | 供桌面端自动更新使用；手动更新请下载 ZIP |
+| Android（签名） | [Wikifactory-Editor-v1.2.6-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.6/Wikifactory-Editor-v1.2.6-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级 |
+| 网页版（PWA） | [Wikifactory-Editor-v1.2.6-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.6/Wikifactory-Editor-v1.2.6-web.zip) | 解压后用任意静态服务器托管（https 或 localhost）；可安装到桌面并离线打开 |
 
 产物只发布在 [Releases](https://github.com/hellokug2699/Wikifactory-Editor/releases) 与 Actions artifact，仓库不再保存 `dist/` 二进制。
 
@@ -78,7 +72,7 @@ Get-AuthenticodeSignature .\Wikifactory-Editor.exe | Format-List
 osslsigncode verify -CAfile desktop/codesign/wikifactory-editor-codesign.crt -in Wikifactory-Editor.exe
 ```
 
-证书 SHA-256 指纹：`56:94:8A:28:78:1E:1C:3A:9E:1F:9E:B3:D1:7D:3F:50:C0:67:75:33:00:10:D6:33:11:AF:AF:DF:CE:80:5A:51`。
+证书 SHA-256 指纹：`E7:2E:47:AB:56:3B:33:9B:14:8F:E3:EE:0E:F0:84:4C:7C:22:EE:54:A1:B9:20:F1:38:A4:2E:EC:BE:B6:0D:44`。
 私钥不进仓库；重新签名时设置：
 
 ```bash
@@ -110,11 +104,11 @@ export ANDROID_KEYSTORE_PASSWORD='***'
 export ANDROID_KEY_ALIAS=wikifactory
 export ANDROID_KEY_PASSWORD='***'
 
-# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.5-android-release.apk）
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.6-android-release.apk）
 npm run build:android:release
 
 # 也可以只重签已有 APK（不重新构建）
-node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.5-android.apk
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.6-android.apk
 ```
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
@@ -362,7 +356,7 @@ npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm run lint            # ESLint + Prettier 检查（CI 同款）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / 草稿 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.2.5-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.2.6-web.zip
 npm run build:desktop   # 生成 Windows 便携 ZIP（exe + resources.neu，可自签名）
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 

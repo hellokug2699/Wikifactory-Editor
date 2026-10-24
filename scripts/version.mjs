@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.2.5';
+export const VERSION = '1.2.6';
 export const APPLICATION_ID = 'top.wikifactory.editor';
 
 /** Deterministic versionCode: major*10000 + minor*100 + patch (CI passes it to Gradle). */

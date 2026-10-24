@@ -43,8 +43,22 @@ jobs:
       - name: Build web bundle
         run: npm run build:web
 
+      # Optional Authenticode signing. Without the two secrets the ZIP still
+      # builds, but the exe stays unsigned (SmartScreen will warn).
       - name: Build Windows bundle and updater resources
-        run: npm run build:desktop
+        env:
+          WINDOWS_SIGNING_P12_BASE64: ${{ secrets.WINDOWS_SIGNING_P12_BASE64 }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          if [ -n "$WINDOWS_SIGNING_P12_BASE64" ]; then
+            printf '%s' "$WINDOWS_SIGNING_P12_BASE64" | base64 -d > "$RUNNER_TEMP/windows-signing.p12"
+            export WINDOWS_SIGNING_P12="$RUNNER_TEMP/windows-signing.p12"
+            export WINDOWS_SIGNING_CERT=desktop/codesign/wikifactory-editor-codesign.crt
+            echo "Signing with the repository self-signed certificate."
+          else
+            echo "WINDOWS_SIGNING_P12_BASE64 not set: the Windows exe will be unsigned."
+          fi
+          npm run build:desktop
 
       - name: Write checksums
         run: |
