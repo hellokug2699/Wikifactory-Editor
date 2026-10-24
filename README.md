@@ -133,6 +133,7 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.3-android.ap
 
 ```
 3f74d7cdc382db5c19e2777579d6cbda9ddd21a3d40a987b8e98764f477350f2  Wikifactory-Editor-v1.2.3-windows-x64.zip
+69699e87861c139a7b8685e37a975f434c616d91ae056d87c45d19fca2edfd56  Wikifactory-Editor-v1.2.3-android-release.apk
 039c99e568eaf17a65099bff3fe6ec0ce3c15b7b5f7b6188ba9595082b440095  Wikifactory-Editor-v1.2.3-web.zip
 ```
 
