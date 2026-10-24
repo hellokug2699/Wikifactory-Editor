@@ -90,5 +90,6 @@ if (fs.existsSync(signer)) {
 const sha = crypto.createHash('sha256').update(fs.readFileSync(outFile)).digest('hex');
 console.log(`[android] ${path.relative(root, outFile)} (${(fs.statSync(outFile).size / 1024 / 1024).toFixed(2)} MB)`);
 console.log(`[android] sha256 ${sha}`);
+console.log('[android] 这是 debug 签名的本地测试包，不会发布到 Release；分发请使用 build:android:release 的签名 APK。');
 
 fs.rmSync(assetsDir, { recursive: true, force: true });

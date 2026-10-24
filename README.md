@@ -6,6 +6,14 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.2.3 功能修复
+
+- **修复桌面端 exe 无法启动**：Windows 分发改为 **便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`）**，不再把资源附加到 PE 尾部。旧方案把约 1.2 MB 资源嵌入 exe，容易被杀毒软件当作自解压壳拦截，也让部分机器无法加载资源。`resources.neu` 采用 Neutralinojs 官方默认的资源加载方式，已在同源构建上验证可正常启动并返回页面。
+- **启动失败可诊断**：桌面端配置启用 `logging`，启动异常会在 exe 同目录留下 `neutralinojs.log`；ZIP 内的 `README.txt` 列出 WebView2 Runtime、Windows「解除锁定」与杀毒软件白名单等排查步骤。
+- **exe 自签名**：新增 `scripts/sign-windows.mjs`（`npm run sign:windows`），用自签名证书对 exe 做 Authenticode 签名；构建时设置 `WINDOWS_SIGNING_P12` 即自动签名并打印证书指纹。SmartScreen 仍会拦截（自签名不受信任），但「文件属性 → 数字签名」可以分辨 exe 是否被篡改。公开证书见 [desktop/codesign/wikifactory-editor-codesign.crt](desktop/codesign/wikifactory-editor-codesign.crt)，SHA-256 指纹 `56:94:8A:28:78:1E:1C:3A:9E:1F:9E:B3:D1:7D:3F:50:C0:67:75:33:00:10:D6:33:11:AF:AF:DF:CE:80:5A:51`。
+- **移除未签名 APK**：`dist/` 与所有 GitHub Release 中的 debug 签名 APK 已删除，只保留 CI 用 release keystore 签名的 `-android-release.apk`。`build:android` 仍可在本地生成 debug 包，但会被 `.gitignore` 排除。
+- 版本号：**1.2.3**（Android versionCode 15）。
+
 ## v1.2.2 质量更新
 
 - **编辑器基础补齐**：接入 CodeMirror 6 的搜索（`Ctrl/Cmd+F`、`Ctrl/Cmd+H` 查找替换、匹配高亮）、自动补全（`[[` 补全站内页面，`[icon=` 补全当前游戏图标名，frontmatter 的 `tags` 补全内置分类）、自动闭合括号与选中内容高亮。补全数据直接复用仓库文件树、`PAGE_TAG_VALUES` 与图标索引，不额外发请求。
@@ -27,30 +35,55 @@
 - **README 更新日志精简**：历史版本移至 [CHANGELOG.md](CHANGELOG.md)，README 只保留最近几个版本，降低新用户的信息负担。
 - 版本号：**1.2.1**（Android versionCode 13）。
 
-## v1.2.0 功能更新
+> 更早的版本记录（v1.1.1 – v1.2.0）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
 
-- **音频插入（仅 OGG）**：工具栏新增「音频」。语法为 `[[Audio/名称.ogg|标题]]`，文件放在 `games/<游戏>/assets/audio/`，标题可省略。对话框只接受 `.ogg`，可随 PR 上传；编辑器预检、Content/Core 门禁都会校验扩展名与文件是否存在。预览先显示占位块，点击后才加载播放器。
-- **嵌入播放器**：工具栏新增「嵌入」。编辑器接受编辑者粘贴的完整链接并转换为短标记 `[[Embed/youtube/ID|标题]]`，目前支持 YouTube / 哔哩哔哩 / Vimeo。编辑器 CSP 与 Core 渲染都只允许这三个来源，其他链接会被门禁拒绝。
-- **折叠合并选项**：工具栏的「文本」与「块」合并为「格式」；frontmatter 的排序 / 日期 / 草稿 / 目录收进「更多选项」；设置页的「外观与编辑」「启动与退出」以及 token 步骤默认折叠，减少不必要的滚动。
-- **共享规则 1.2.0**：`content-rules.js` 新增音频 / 嵌入解析与校验；Core 渲染层复用同一份逐字节副本（`src/lib/content-rules.js`）。
-- 版本号：**1.2.0**（Android versionCode 12）。
-
-> 更早的版本记录（v1.1.1 – v1.1.9）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
-
-## 下载（v1.2.2）
+## 下载（v1.2.3）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.2.2-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android（签名） | [Wikifactory-Editor-v1.2.2-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
-| Android（试用） | [Wikifactory-Editor-v1.2.2-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-android.apk) | debug 签名，仅用于试用；与签名版的证书不同，不能互相覆盖 |
-| 网页版 | [Wikifactory-Editor-v1.2.2-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.2.3-windows-x64.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.3/Wikifactory-Editor-v1.2.3-windows-x64.zip) | 便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`），exe 已自签名；解压后双击运行，需要 WebView2 Runtime |
+| Android（签名） | [Wikifactory-Editor-v1.2.3-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.3/Wikifactory-Editor-v1.2.3-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
+| 网页版 | [Wikifactory-Editor-v1.2.3-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.3/Wikifactory-Editor-v1.2.3-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
-> 长期分发请使用 **Android（签名）** 产物。它由 CI 使用固定的 release keystore 签名，后续版本可覆盖升级；debug 版仅用于快速试用。
+> Windows 不再发布单文件 exe。单文件版本把资源附加在 exe 末尾，容易被杀毒软件误判，也可能在部分机器上启动失败；ZIP 中的 `resources.neu` 是 Neutralinojs 的默认资源方式。
 >
-> exe 未做代码签名；首次运行若被 SmartScreen 拦截，选择「更多信息 → 仍要运行」即可。
+> 未签名（debug）APK 已从所有 Release 移除，Android 只提供 CI 签名版。
+
+### Windows 自签名
+
+exe 使用自签名证书做 Authenticode 签名。SmartScreen 仍会提示「未知发布者」，但可以在「文件属性 → 数字签名」中确认签名者与完整性：
+
+```powershell
+# Windows：查看签名与证书指纹（需安装 Windows SDK 的 signtool）
+signtool verify /pa /v Wikifactory-Editor.exe
+Get-AuthenticodeSignature .\Wikifactory-Editor.exe | Format-List
+```
+
+```bash
+# Linux / macOS：用仓库中的公开证书校验
+osslsigncode verify -CAfile desktop/codesign/wikifactory-editor-codesign.crt -in Wikifactory-Editor.exe
+```
+
+证书 SHA-256 指纹：`56:94:8A:28:78:1E:1C:3A:9E:1F:9E:B3:D1:7D:3F:50:C0:67:75:33:00:10:D6:33:11:AF:AF:DF:CE:80:5A:51`。
+私钥不进仓库；重新签名时设置：
+
+```bash
+export WINDOWS_SIGNING_P12=/path/to/windows-signing.p12   # 或 base64 文本
+export WINDOWS_SIGNING_PASSWORD='***'
+export WINDOWS_SIGNING_CERT=desktop/codesign/wikifactory-editor-codesign.crt
+npm run build:desktop          # 构建时自动签名
+npm run sign:windows -- dist/.../Wikifactory-Editor.exe   # 也可以单独签
+npm run sign:windows -- --verify dist/.../Wikifactory-Editor.exe
+```
+
+### 启动失败排查（Windows）
+
+1. **解压后再运行**：直接双击 ZIP 内的 exe 不会解压，必须先把 exe 与 `resources.neu` 解压到同一目录。
+2. **解除锁定**：右键 exe → 属性 → 勾选「解除锁定」→ 确定（浏览器下载的文件会带 Mark-of-the-Web）。
+3. **WebView2 Runtime**：Windows 10/11 通常自带；若缺少，安装 <https://go.microsoft.com/fwlink/p/?LinkId=2124703>。
+4. **查看日志**：启动失败时 exe 同目录会生成 `neutralinojs.log`，常见原因是杀毒软件拦截或 WebView2 缺失；可把该目录加入杀毒软件白名单后重试。
 
 ### Android 签名
 
@@ -65,11 +98,11 @@ export ANDROID_KEYSTORE_PASSWORD='***'
 export ANDROID_KEY_ALIAS=wikifactory
 export ANDROID_KEY_PASSWORD='***'
 
-# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.2-android-release.apk）
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.3-android-release.apk）
 npm run build:android:release
 
 # 也可以只重签已有 APK（不重新构建）
-node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.2-android.apk
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.3-android.apk
 ```
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
@@ -99,10 +132,8 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.2-android.ap
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-03c5804aa137c3852ff4186be10bceb6fabecb69d95a2d303897297de5a161e4  Wikifactory-Editor-v1.2.2-android-release.apk
-28c7093960c5e7c7f33922e5d17f7f9866a26fb6f75babcf9a271d1c175bd188  Wikifactory-Editor-v1.2.2-android.apk
-e1dbcef723be6470934f35a8e6083e00edb4619169a3032eae9224cc0a4b911a  Wikifactory-Editor-v1.2.2-web.zip
-fdca96ba7a908394cfe4f06c8d9196adc276fd6f1ea5dfe9938ec891fdb52f66  Wikifactory-Editor-v1.2.2-windows-x64.exe
+3f74d7cdc382db5c19e2777579d6cbda9ddd21a3d40a987b8e98764f477350f2  Wikifactory-Editor-v1.2.3-windows-x64.zip
+039c99e568eaf17a65099bff3fe6ec0ce3c15b7b5f7b6188ba9595082b440095  Wikifactory-Editor-v1.2.3-web.zip
 ```
 
 签名版 APK 由 CI 在发布 Release 后附加（其 SHA-256 会同步更新到 `dist/SHA256SUMS.txt`）；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
@@ -290,7 +321,7 @@ desktop/             Neutralinojs 桌面壳配置
 android/             Android WebView 壳（Gradle）
 scripts/             构建、vendor bundle、共享规则同步、release 签名与自测脚本
 docs/screenshots/    README 截图
-dist/                交付产物（exe / apk / web zip）
+dist/                交付产物（Windows 便携 ZIP / 签名 APK / web zip）
 ```
 
 ## 构建
@@ -308,8 +339,8 @@ npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm run lint            # ESLint + Prettier 检查（CI 同款）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / 草稿 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.2.2-web.zip
-npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
+npm run build:web       # dist/Wikifactory-Editor-v1.2.3-web.zip
+npm run build:desktop   # 生成 Windows 便携 ZIP（exe + resources.neu，可自签名）
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 
 # 共享内容规则（与 Wikifactory-Content / Wikifactory-Core 同源）
@@ -325,7 +356,7 @@ npm run tags:check -- ../Wikifactory-Core       # 校验 Core 副本是否过期
 npm run build:android:release
 ```
 
-桌面构建会在 `desktop/bin/` 缓存 Neutralinojs 二进制（已忽略），并通过 `neu build --release --embed-resources` 把全部资源嵌入 exe。
+桌面构建会在 `desktop/bin/` 缓存 Neutralinojs 二进制（已忽略），通过 `neu build --release` 生成 `resources.neu`，再把 exe 与资源一起打包成 ZIP；设置 `WINDOWS_SIGNING_P12` 等变量时会自动做 Authenticode 签名。
 
 代码风格由 [eslint.config.js](eslint.config.js)（flat config）与 [.prettierrc.json](.prettierrc.json) 约束；`npm run lint:fix` 可自动修复。`content-rules.js` 与 Content / Core 逐字节同源，已加入 Prettier 忽略列表，任何格式化都会破坏哈希校验。`.github/workflows/ci.yml` 在 push 与 PR 上运行 `npm ci && npm run lint && npm test`。
 
@@ -341,7 +372,7 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 - 多草稿只保存正文与 frontmatter，不包含「待上传资源」；切换草稿或页面后需要重新选择图片 / 音频。
 - 站内链接校验基于文件路径与文件名，无法读取页面 frontmatter 标题或 Wikifactory-Alias 别名，因此只给警告、不阻断。
 - Android Release 中的 debug APK 仅用于试用；长期分发请使用 CI 附加的签名版 APK（见「Android 签名」）。没有接入 Play Store / 自动更新。
-- Windows exe 依赖 WebView2 Runtime（Windows 10/11 通常自带）。
+- Windows 版以 ZIP 分发（exe + `resources.neu`），必须解压后运行；依赖 WebView2 Runtime（Windows 10/11 通常自带）。exe 为自签名，SmartScreen 仍会提示未知发布者。
 - 编辑器仅访问 Content 仓库；如果未来需要恢复 Core/Alias，应作为独立应用或明确的新版本决策，而不是在当前版本中放开。
 - 若 GitHub 的 Content 仓库启用了 “Require branches to be up to date” 分支保护，仍需在仓库设置中关闭；编辑器侧本身不做该限制。
 

@@ -1,6 +1,6 @@
 {
   "name": "wikifactory-editor",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "description": "Wikifactory Content contributor editor with syntax highlighting and client-side GitHub PR flow.",
   "type": "module",
@@ -10,6 +10,7 @@
     "build:desktop": "node scripts/build-desktop.mjs",
     "build:android": "node scripts/build-android.mjs",
     "build:android:release": "node scripts/android-release.mjs",
+    "sign:windows": "node scripts/sign-windows.mjs",
     "test": "node scripts/selftest.mjs && node scripts/github-selftest.mjs && node scripts/token-selftest.mjs",
     "lint": "eslint . && prettier --check \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"eslint.config.js\"",
     "lint:fix": "eslint . --fix && prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"eslint.config.js\"",

@@ -1,6 +1,6 @@
 {
   "applicationId": "top.wikifactory.editor",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "defaultMode": "window",
   "port": 0,
   "documentRoot": "/resources/",
@@ -36,5 +36,9 @@
     "clientLibrary": "/resources/neutralino.js",
     "binaryVersion": "6.10.0",
     "clientVersion": "6.10.0"
+  },
+  "logging": {
+    "enabled": true,
+    "writeToLogFile": true
   }
 }
