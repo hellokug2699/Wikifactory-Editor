@@ -11,6 +11,7 @@ export const APP_SCHEME = 'wikifactory-editor';
 
 const PAGE_EXT_RE = /\.(md|mdx)$/i;
 const ASSET_EXT_RE = /\.(png|jpe?g|webp|avif|gif|svg|ogg)$/i;
+const UNSAFE_SEGMENT_RE = /[\\\u0000-\u001f]/;
 
 function decode(value) {
   try {
@@ -27,13 +28,21 @@ function cleanPath(value) {
     .replace(/\/{2,}/g, '/');
 }
 
+/** Dot segments would let a crafted link escape `games/` inside the repo. */
+export function isSafeContentPath(path) {
+  const value = String(path || '');
+  if (!value || UNSAFE_SEGMENT_RE.test(value)) return false;
+  return value.split('/').every((segment) => segment && segment !== '.' && segment !== '..');
+}
+
 /**
  * Add the page extension and normalise a repo path.
  * `games/A/B/Page/` → `games/A/B/Page.md`
+ * Returns '' for empty or unsafe input.
  */
 export function normalizeContentPath(value) {
   const path = cleanPath(value).replace(/\/+$/, '');
-  if (!path) return '';
+  if (!path || !isSafeContentPath(path)) return '';
   if (PAGE_EXT_RE.test(path) || ASSET_EXT_RE.test(path)) return path;
   return `${path}.md`;
 }
@@ -53,6 +62,9 @@ export function parseDeepLink(input) {
   // Bare repo path (also what the site passes as ?path=).
   if (!/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
     const path = normalizeContentPath(raw);
+    if (!path) {
+      return { ok: false, path: '', kind: 'page', reason: '路径包含不安全片段' };
+    }
     if (!path.startsWith('games/')) {
       return { ok: false, path: '', kind: 'page', reason: '只支持 games/ 下的页面或资源' };
     }
@@ -83,6 +95,9 @@ export function parseDeepLink(input) {
   if (explicit) return parseDeepLink(explicit);
 
   const path = normalizeContentPath(url.pathname);
+  if (!path) {
+    return { ok: false, path: '', kind: 'page', reason: '路径包含不安全片段' };
+  }
   if (!path.startsWith('games/')) {
     return { ok: false, path: '', kind: 'page', reason: '链接不是内容页面（缺少 games/ 路径）' };
   }

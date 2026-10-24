@@ -8,12 +8,23 @@
 
 ## v1.2.5 质量更新
 
-- **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。网页上点「编辑」、点分享链接、或用文件管理器打开 `.md`，都会直接唤起 App 并定位到对应页面（应用内点击站内链接也不再跳浏览器）。网页版可用 `?path=games/…` 直达。
+- **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。站点侧部署 `/.well-known/assetlinks.json`（由私有 Core 仓库的 `public/.well-known/assetlinks.json` 提供）并通过 App Links 校验后，`wikifactory.top/games/…` 会直接唤起 App；若校验未通过，系统会退回「用其他应用打开」的询问框（不会静默失败）。应用内点击站内链接也走同一套深链解析。网页版可用 `?path=games/…` 直达。
 - **审阅闭环**：PR 创建后按钮变为 `PR #编号`，可随时打开「PR 审阅状态」查看 state / 审阅结论 / 批准·要求修改·评论·待审阅数量 / 评论与审阅评论数 / 变更行数，并每 30 秒刷新。存在冲突时不再建议「换个分支名」，而是给出 `git merge`、`git rebase`、`--force-with-lease` 的完整步骤与 GitHub 网页端替代方案。
 - **批量操作**：侧栏新增「批量操作」。**批量编辑**把多个页面放进编辑队列，逐页修改后汇总成一个 PR（切换页面时自动保留队列内容）；**批量重命名**一次改多个页面，并扫描同游戏目录自动改写指向这些页面的 `[[…]]` 站内链接（代码块与行内代码不动），最终一个 PR 内完成改名 + 链接更新 + 旧文件删除。
 - **i18n 与无障碍**：新增 `i18n.js`（zh / en），界面控件、工具栏、设置与 v1.2.5 新窗口全部双语，缺失条目回退中文。CSP 收窄：`img-src` / `media-src` 只允许 `raw.githubusercontent.com` 与本机，`frame-src` 仍只放开 YouTube / 哔哩哔哩 / Vimeo；`frame-ancestors 'none'` 与 `X-Frame-Options: DENY` 通过 `app/_headers` 下发（浏览器忽略 meta 里的 frame-ancestors）。提交 / 批量改名等 busy 期间 Esc 与点击遮罩不再关闭窗口；toast 区域补 `role="status"` 与 `aria-live`。
-- **配置化**：新增仓库根 `editor-config.json`（Content owner/repo/branch、Release 仓库、保留路径与上传上限），构建时由 `scripts/editor-config.mjs` 生成带 SHA-256 与 owner 白名单的 `editor-config.js`。运行时先校验哈希再应用；哈希不符或配置被改动时仍要求通过白名单（owner 白名单、拒绝 Core / Alias、拒绝未知字段），失败则回退内置配置。**迁移 Content 仓库只需改这个 JSON，不必发新版**。
+- **配置化**：新增仓库根 `editor-config.json`（Content owner/repo/branch、Release 仓库、保留路径与上传上限），构建时由 `scripts/editor-config.mjs` 生成带 SHA-256 与 owner 白名单的 `editor-config.js`。运行时先校验哈希：仓库地址与内置值一致时直接应用；若指向其他仓库且哈希不符，**不会自动切换**，而是在侧栏「编辑范围」中等待确认（批准结果按配置哈希记住）。`rules.maxUploadMb` 会真正限制上传大小；`rules.reservedPaths` 必须与共享规则 `content-rules.js` 一致（它是断言，不是第三份副本）。**迁移 Content 仓库只需改这个 JSON 并在客户端确认，不必发新版**。
 - 版本号：**1.2.5**（Android versionCode 10205）。
+
+## 稳定性修复（未发布，v1.2.6 待发）
+
+- **跨平台**：新增 `.gitattributes` / `.editorconfig`，生成文件校验统一按 LF 归一化；CI 增加 Windows 矩阵。修复 Windows 检出后 `npm test` / `npm run lint` 直接失败的问题。
+- **PWA 离线**：Service Worker 预缓存全部运行资源，缓存桶按版本注入；应用代码改为网络优先，安装后首次离线即可打开。
+- **App Links**：Android 开启 `autoVerify`，Core 仓库提供 `public/.well-known/assetlinks.json`；校验失败时退回系统选择器。
+- **配置安全**：哈希校验 fail-closed；指向其他仓库且哈希不符时需在侧栏显式确认；`rules.maxUploadMb` 真正生效，`rules.reservedPaths` 与共享规则对齐。
+- **批量重命名**：新增路径 / 非法字符 / `.md`-`.mdx` URL 冲突校验；页面读取并发 4；超过 200 个页面时明确提示，不再静默截断。
+- **深链安全**：拒绝 `.` / `..` / 空段 / 反斜杠 / 控制字符，加载前再校验一次仓库路径。
+- **UI 转义**：模态框 `subtitle` 与确认框默认转义；预览中的 `[[页面]]` 点击可在应用内跳转。
+- **工程**：e2e 支持 Windows / macOS / Linux 的 Chromium 查找并接入 CI；新增 desktop + web 发布 workflow。
 
 ## v1.2.4 质量更新
 
@@ -140,7 +151,7 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.5-android.ap
 
 | 入口 | 用法 |
 | --- | --- |
-| 网站页面 | `https://wikifactory.top/games/<游戏>/<分类>/<页面>/` 直接唤起 App 并加载该页面 |
+| 网站页面 | `https://wikifactory.top/games/<游戏>/<分类>/<页面>/` 已通过 App Links 校验时直接唤起 App，否则由系统询问打开方式 |
 | 自定义 scheme | `wikifactory-editor://open?path=games/…` |
 | 网页版 | `index.html?path=games/…` 或 `?open=<任意受支持链接>` |
 | Markdown 文件 | Android「用其他应用打开」→ Wikifactory Editor，作为新页面导入（保存前确认仓库路径） |
@@ -351,7 +362,7 @@ npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
 npm run lint            # ESLint + Prettier 检查（CI 同款）
 npm test                # 内容规则 / frontmatter / Wiki 语法 / 草稿 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.2.3-web.zip
+npm run build:web       # dist/Wikifactory-Editor-v1.2.5-web.zip
 npm run build:desktop   # 生成 Windows 便携 ZIP（exe + resources.neu，可自签名）
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 
@@ -370,9 +381,9 @@ npm run build:android:release
 
 桌面构建会在 `desktop/bin/` 缓存 Neutralinojs 二进制（已忽略），通过 `neu build --release` 生成 `resources.neu`，再把 exe 与资源一起打包成 ZIP；设置 `WINDOWS_SIGNING_P12` 等变量时会自动做 Authenticode 签名。
 
-代码风格由 [eslint.config.js](eslint.config.js)（flat config）与 [.prettierrc.json](.prettierrc.json) 约束；`npm run lint:fix` 可自动修复。`content-rules.js` 与 Content / Core 逐字节同源，已加入 Prettier 忽略列表，任何格式化都会破坏哈希校验。`.github/workflows/ci.yml` 在 push 与 PR 上运行 `npm ci && npm run lint && npm test`。
+代码风格由 [eslint.config.js](eslint.config.js)（flat config）与 [.prettierrc.json](.prettierrc.json) 约束；`npm run lint:fix` 可自动修复。`content-rules.js` 与 Content / Core 逐字节同源，已加入 Prettier 忽略列表，任何格式化都会破坏哈希校验。`.gitattributes` 统一 LF 行尾，Windows 检出不会再把生成文件校验 / Prettier 检查弄失败。`.github/workflows/ci.yml` 在 push 与 PR 上运行 `npm ci && npm run lint && npm test`（Ubuntu + Windows），并单独跑 Playwright 主链路。
 
-Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.net` 加载本地静态文件，因此 `localStorage`、`fetch` 与 CORS 行为与普通浏览器一致；网络请求只发往 `api.github.com`（GitHub API）与 YouTube / Vimeo 的 oEmbed 标题接口。
+Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.net` 加载本地静态文件，因此 `localStorage`、`fetch` 与 CORS 行为与普通浏览器一致；网络请求只发往 `api.github.com`（GitHub API）、`raw.githubusercontent.com`（远程配置 / 更新清单）、`github.com` 与 `objects.githubusercontent.com` / `release-assets.githubusercontent.com`（更新下载）以及 YouTube / Vimeo 的 oEmbed 标题接口。
 
 ## 已知限制
 
@@ -383,8 +394,13 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 - `[[` 页面补全、`[icon=` 图标补全与图标存在性诊断都依赖仓库文件树；完全离线且没有缓存时只会退回本地语法检查（路径、frontmatter、Wiki 语法）。
 - 多草稿只保存正文与 frontmatter，不包含「待上传资源」；切换草稿或页面后需要重新选择图片 / 音频。
 - 站内链接校验基于文件路径与文件名，无法读取页面 frontmatter 标题或 Wikifactory-Alias 别名，因此只给警告、不阻断。
-- Android 只发布 CI 签名版 APK；`npm run build:android` 生成的 debug 包仅用于本地测试，不会进入 Release。没有接入 Play Store / 自动更新。
-- Windows 版以 ZIP 分发（exe + `resources.neu`），必须解压后运行；依赖 WebView2 Runtime（Windows 10/11 通常自带）。exe 为自签名，SmartScreen 仍会提示未知发布者。
+- 批量重命名的链接改写以同游戏目录为范围，最多扫描 200 个页面；超出时窗口会明确提示，未扫描页面的链接需要手工确认。
+- 远程 `editor-config.json` 指向其他仓库时，必须在侧栏「编辑范围」中确认后才会启用；确认结果按配置哈希记忆在本机。
+- Android App Links 依赖 `https://wikifactory.top/.well-known/assetlinks.json`；若该文件未部署或证书不匹配，系统会退回「用其他应用打开」的询问框。更换签名证书后必须同步更新该文件。
+- Android 只发布 CI 签名版 APK；`npm run build:android` 生成的 debug 包仅用于本地测试，不会进入 Release。没有接入 Play Store / 自动更新（更新方式 0 只会下载并提示安装）。
+- Windows 版以 ZIP 分发（exe + `resources.neu`），必须解压后运行；依赖 WebView2 Runtime（Windows 10/11 通常自带）。exe 为自签名，SmartScreen 仍会提示未知发布者。桌面自动更新从 GitHub Releases 下载 `resources.neu`，完整性依赖 HTTPS 与 GitHub Release 的发布流程，编辑器侧不做二次签名校验。
+- `npm run test:e2e` 需要本机 Chromium（Playwright 缓存、系统 Chrome/Edge 或 `PW_CHROME`）；CI 会安装并在缺少浏览器时直接失败，本地默认跳过。
+- 仓库 git 历史中仍保留 v1.2.3 之前的 APK / exe（约 17 MB）；`dist/` 已停止入库，如需缩小 clone 体积可择机重写历史。
 - 编辑器仅访问 Content 仓库；如果未来需要恢复 Core/Alias，应作为独立应用或明确的新版本决策，而不是在当前版本中放开。
 - 若 GitHub 的 Content 仓库启用了 “Require branches to be up to date” 分支保护，仍需在仓库设置中关闭；编辑器侧本身不做该限制。
 
@@ -394,8 +410,8 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 - 关闭「记住 token」时 token 只留在内存；离开共享设备前请使用设置中的「清除 token」。
 - token 输入框不提供显示按钮，并阻止复制、剪切与拖拽；粘贴可用，但请勿自行截图或粘贴到其他位置。
 - 注意：网页 / Windows 的加密密钥由本机可见信息派生，能运行调试工具的攻击者仍可能解密，属于提高门槛而非硬件隔离；Android Keystore 提供真正的不可导出密钥。
-- 网络层只允许 `Wikifactory-Content`；Core / Alias 仓库名会被直接拒绝。
-- 启动检查更新与读取 CONTRIBUTING.md 只访问 `api.github.com`，不会发送 token 到编辑器仓库；更新只提示、不下载。
+- 网络层只允许当前配置的 Content 仓库（默认 `Wikifactory-Content`）；Core / Alias 仓库名会被直接拒绝。远程配置若要把仓库改到别处，必须通过 owner 白名单与客户端显式确认。
+- 启动检查更新只访问 `api.github.com`（Release 元数据）、`raw.githubusercontent.com`（更新清单）与 GitHub Releases（下载），不会发送 token；更新方式为 0 时桌面端会自动下载资源包，Android 会打开签名 APK 的下载地址（安装仍需用户确认）。
 - 建议为编辑器单独创建最小权限 token，并定期在 GitHub 设置中撤销。
 - 公开仓库内不要提交任何 token、密钥或个人隐私信息。
 

@@ -2,6 +2,18 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 3 个版本的摘要。
 
+## 未发布（v1.2.6）
+
+- **跨平台行尾**：新增 `.gitattributes`（`* text=auto eol=lf`）与 `.editorconfig`；`version.mjs` / `editor-config.mjs` 的生成文件校验按 LF 归一化。修复 Windows 检出后 `npm test` 与 `npm run lint` 必然失败的问题；CI 增加 Windows 矩阵。
+- **PWA 可靠性**：`sw.js` 预缓存全部运行时资源（此前没有预缓存任何 JS），缓存桶按构建版本注入，应用代码改网络优先，安装后首次离线即可用；检测到新版本时提示刷新。
+- **Android App Links**：Manifest 增加 `autoVerify`，Core 仓库新增 `public/.well-known/assetlinks.json`（固定 release 证书指纹）；校验失败时退回系统选择器。
+- **配置安全**：远程配置的哈希校验改为 fail-closed；在「指向其他仓库 + 哈希不符」时不再静默应用，而是等待侧栏确认（按配置哈希记忆）。`rules.maxUploadMb` 接入图片 / 图标 / 音频上传上限，GIF / SVG 超限直接拒绝；`rules.reservedPaths` 与共享规则不一致时拒绝配置。
+- **批量重命名**：补上路径层级、非法字符、保留目录、扩展名与 `.md`/`.mdx` 同 URL 冲突校验；正文读取改为并发 4；扫描上限从静默 60 提高到 200 并在超限时明确提示。
+- **深链**：拒绝 `.` / `..` / 空段 / 反斜杠 / 控制字符，加载前再次校验仓库路径；预览中的 `[[页面]]` 可在应用内跳转。
+- **UI 转义**：`openModal` 的 subtitle 与 `confirmDialog` 的 message 默认转义（批量重命名显式走 `messageHtml` 并转义路径）。
+- **测试与发布**：e2e 支持 Windows / macOS / Linux 的 Chromium 查找，缺失浏览器时 CI 直接失败；新增 `.github/workflows/release.yml` 构建并附加 Windows ZIP、`resources.neu`、web ZIP 与 SHA-256。
+- **文档**：修正更新渠道、网络白名单、构建示例版本与 App Links 说明；补充 Content / Core 的行尾约定。
+
 ## v1.2.2 质量更新
 
 - **编辑器基础补齐**：接入 CodeMirror 6 的搜索（`Ctrl/Cmd+F`、`Ctrl/Cmd+H` 查找替换、匹配高亮）、自动补全（`[[` 补全站内页面，`[icon=` 补全当前游戏图标名，frontmatter 的 `tags` 补全内置分类）、自动闭合括号与选中内容高亮。补全数据直接复用仓库文件树、`PAGE_TAG_VALUES` 与图标索引，不额外发请求。

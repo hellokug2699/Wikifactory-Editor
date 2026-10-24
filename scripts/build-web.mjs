@@ -14,6 +14,10 @@ fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 fs.cpSync(appDir, outDir, { recursive: true });
 
+// Give every release its own service-worker cache bucket.
+const swPath = path.join(outDir, 'sw.js');
+fs.writeFileSync(swPath, fs.readFileSync(swPath, 'utf8').replaceAll('__WFE_VERSION__', version));
+
 fs.rmSync(zipPath, { force: true });
 try {
   execFileSync('zip', ['-qr', zipPath, '.'], { cwd: outDir, stdio: 'inherit' });

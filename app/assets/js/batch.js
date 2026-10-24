@@ -6,9 +6,38 @@
  * inside files it can read, so the UI limits the scan to the edited pages plus
  * the same game folder.
  */
+import { RESERVED_PATHS, nameProblem } from './content-rules.js';
 
 const PAGE_EXT_RE = /\.(md|mdx)$/i;
 const RESERVED_LINK_RE = /^(?:File|Image|文件|Audio|Embed)\s*[/\\:：]/i;
+const BAD_SEGMENT_RE = /[\\:*?"<>|\u0000-\u001f]/;
+const PAGE_DEPTH = 4;
+
+/** Page URL without the extension: `games/A/B/MAM.md` → `games/A/B/MAM`. */
+function pageUrl(path) {
+  return String(path || '')
+    .replace(PAGE_EXT_RE, '')
+    .toLowerCase();
+}
+
+/** Reuse the shared naming rules; returns a problem string or ''. */
+function pathProblem(path) {
+  const value = String(path || '');
+  if (!value.startsWith('games/')) return '目标必须位于 games/ 下';
+  if (value.startsWith('/')) return '目标不能以 / 开头';
+  const segments = value.split('/');
+  if (segments.length < PAGE_DEPTH) return '层级不足：应为 games/<游戏>/<分类>/…/<页面>.md';
+  for (const segment of segments) {
+    if (!segment || segment === '.' || segment === '..') return '目标路径包含空段或点段';
+    if (BAD_SEGMENT_RE.test(segment)) return `目标路径包含非法字符：${segment}`;
+    const problem = nameProblem(segment, { isFile: segment === segments[segments.length - 1] });
+    if (problem) return problem;
+  }
+  if (RESERVED_PATHS.includes(segments[1].toLowerCase())) return `游戏目录名与保留路径冲突：${segments[1]}`;
+  const ext = segments[segments.length - 1].split('.').pop();
+  if (ext !== ext.toLowerCase()) return '扩展名必须小写';
+  return '';
+}
 
 export function pageIdOf(path) {
   const value = String(path || '').replace(/^\/+/, '');
@@ -29,7 +58,8 @@ export function renamePagePath(path, newName) {
   const name = String(newName || '')
     .trim()
     .replace(PAGE_EXT_RE, '');
-  if (!name) return '';
+  // A rename changes the stem only; separators would silently create folders.
+  if (!name || /[\\/]/.test(name)) return '';
   return `${dir}/${name}${ext}`;
 }
 
@@ -44,14 +74,19 @@ export function planRename({ from, to, repoPaths = [] }) {
   const source = String(from || '').replace(/^\/+/, '');
   const target = String(to || '').replace(/^\/+/, '');
   if (!source || !PAGE_EXT_RE.test(source)) return { ok: false, from: source, to: target, error: '源路径不是页面' };
-  if (!target || !PAGE_EXT_RE.test(target)) return { ok: false, from: source, to: target, error: '目标路径不是页面' };
+  if (!target) return { ok: false, from: source, to: target, error: '目标文件名为空或包含 / \\' };
+  if (!PAGE_EXT_RE.test(target)) return { ok: false, from: source, to: target, error: '目标路径不是页面' };
   if (source === target) return { ok: true, from: source, to: target, unchanged: true };
-  if (target.includes('..') || target.startsWith('/')) {
-    return { ok: false, from: source, to: target, error: '目标路径不合法' };
-  }
+  const problem = pathProblem(target);
+  if (problem) return { ok: false, from: source, to: target, error: problem };
   const lower = target.toLowerCase();
   if (repoPaths.some((path) => path !== source && path.toLowerCase() === lower)) {
     return { ok: false, from: source, to: target, error: `目标已存在：${target}` };
+  }
+  // `.md` and `.mdx` share one URL on the site: renaming across them still collides.
+  const url = pageUrl(target);
+  if (repoPaths.some((path) => path !== source && pageUrl(path) === url)) {
+    return { ok: false, from: source, to: target, error: `与现有页面 URL 冲突（扩展名不同）：${target}` };
   }
   return { ok: true, from: source, to: target };
 }

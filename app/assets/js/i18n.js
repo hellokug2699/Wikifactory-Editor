@@ -168,6 +168,16 @@ const ZH = {
   'cfg.verified': '（哈希校验通过）',
   'cfg.unverified': '（配置已更新，哈希与当前版本不同，已按白名单校验后应用）',
   'cfg.rejected': 'editor-config.json 未通过白名单校验，已回退到内置配置',
+  'cfg.pending': '远程配置要求把 Content 仓库切换为 {repo}，但该配置与内置哈希不一致。出于安全考虑，暂未启用。',
+  'cfg.pendingApprove': '查看并启用',
+  'cfg.pendingKeep': '继续使用内置配置',
+  'cfg.confirmTitle': '启用远程仓库配置？',
+  'cfg.confirmBody':
+    '远程 editor-config.json 未通过哈希固定，且要切换 Content 仓库：<br><br>内置：{builtin}<br>远程：{remote}<br><br>只有在你确认这次迁移可信时才继续。之后提交的 PR 会指向远程仓库。',
+  'cfg.confirmEnable': '启用',
+  'cfg.confirmed': '已启用远程仓库配置：{repo}',
+  'cfg.kept': '已继续使用内置仓库配置。',
+  'cfg.pendingToast': '检测到远程仓库配置变更，请在侧栏「编辑范围」中确认。',
 };
 
 const EN = {
@@ -327,6 +337,17 @@ const EN = {
   'cfg.verified': ' (hash verified)',
   'cfg.unverified': ' (config changed since release; applied after whitelist checks)',
   'cfg.rejected': 'editor-config.json failed whitelist checks; built-in config kept',
+  'cfg.pending':
+    'The remote config wants to switch the Content repository to {repo}, but its hash does not match this build. It is not applied until you confirm.',
+  'cfg.pendingApprove': 'Review and enable',
+  'cfg.pendingKeep': 'Keep built-in config',
+  'cfg.confirmTitle': 'Enable the remote repository config?',
+  'cfg.confirmBody':
+    'The remote editor-config.json is not hash-pinned and would move the Content repository:<br><br>Built-in: {builtin}<br>Remote: {remote}<br><br>Continue only if you trust this migration. Pull requests will target the remote repository.',
+  'cfg.confirmEnable': 'Enable',
+  'cfg.confirmed': 'Remote repository config enabled: {repo}',
+  'cfg.kept': 'Continuing with the built-in repository config.',
+  'cfg.pendingToast': 'Remote repository config changed; confirm it in the sidebar.',
 };
 
 export const DICTIONARIES = { zh: ZH, en: EN };

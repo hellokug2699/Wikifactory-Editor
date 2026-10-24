@@ -1,0 +1,30 @@
+# Normalize every text file to LF in the working tree, independent of the
+# developer's core.autocrlf setting. Generated-file checks compare bytes, so a
+# CRLF checkout used to fail `npm test` / `npm run lint` on Windows only.
+* text=auto eol=lf
+
+# Binary assets must never be converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.svg text eol=lf
+*.ogg binary
+*.exe binary
+*.dll binary
+*.apk binary
+*.zip binary
+*.neu binary
+*.jks binary
+*.keystore binary
+*.p12 binary
+*.pfx binary
+*.idsig binary
+
+# Keep Windows scripts (if added later) usable.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

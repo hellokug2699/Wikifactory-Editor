@@ -1,0 +1,13 @@
+{
+  "owner": "hellokug2699",
+  "repo": "https://github.com/hellokug2699/Wikifactory-Editor",
+  "base": "main",
+  "agent": {
+    "id": "dsh",
+    "expectedLogin": "hellokug2699"
+  },
+  "dsh": {
+    "command": ["D:\\Program Files\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd", "headless"]
+  },
+  "verify": [["node", "test"]]
+}

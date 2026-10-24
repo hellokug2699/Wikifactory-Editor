@@ -70,7 +70,7 @@ export function openModal(options) {
     <div class="modal-head">
       <div class="modal-head-text">
         <h2 class="modal-title">${escape(title)}</h2>
-        ${subtitle ? `<p class="modal-subtitle">${subtitle}</p>` : ''}
+        ${subtitle ? `<p class="modal-subtitle">${escape(subtitle)}</p>` : ''}
       </div>
       <button class="modal-close" type="button" aria-label="关闭">${icon('x')}</button>
     </div>
@@ -194,11 +194,20 @@ export function closeModal(immediate = false) {
   }
 }
 
-export function confirmDialog({ title, message, confirmText = '确定', cancelText = '取消', danger = false }) {
+export function confirmDialog({
+  title,
+  message,
+  messageHtml = false,
+  confirmText = '确定',
+  cancelText = '取消',
+  danger = false,
+}) {
   return new Promise((resolve) => {
     const modal = openModal({
       title,
-      body: `<p style="margin:0;font-size:13px;line-height:1.7;color:var(--text-soft)">${message}</p>`,
+      body: `<p style="margin:0;font-size:13px;line-height:1.7;color:var(--text-soft)">${
+        messageHtml ? message : escape(message)
+      }</p>`,
       size: 'narrow',
       footer: [
         {

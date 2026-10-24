@@ -1,14 +1,27 @@
 /** Runtime editor config: fetch + hash check + whitelist, then apply. */
 import { ALLOWED_OWNERS, CONFIG_SHA256, CONFIG_URL, DEFAULT_CONFIG } from './editor-config.js';
+import { RESERVED_PATHS } from './content-rules.js';
 import { setRepoConfig } from './state.js';
 
 const FORBIDDEN_REPOS = ['core', 'alias', 'wikifactory-core', 'wikifactory-alias'];
 const OWNER_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
+const APPROVAL_KEY = 'wikifactory-editor:config-approval:v1';
 
 let active = { config: DEFAULT_CONFIG, source: 'default', verified: true, problems: [] };
+/** Remote config that passed the whitelist but would move the repo without a matching pin. */
+let pending = null;
 
-/** Same whitelist as scripts/editor-config.mjs, so a remote config cannot widen it. */
+function normalizedList(values = []) {
+  return values.map((value) => String(value).toLowerCase()).sort();
+}
+
+/**
+ * Same whitelist as scripts/editor-config.mjs, so a remote config cannot widen it.
+ * `rules.reservedPaths` is an assertion: the canonical list lives in
+ * content-rules.js (shared byte-for-byte with Content / Core), so a config that
+ * disagrees is rejected instead of silently drifting.
+ */
 export function configProblems(config, { allowedOwners = ALLOWED_OWNERS } = {}) {
   const problems = [];
   if (!config || typeof config !== 'object') return ['配置不是对象'];
@@ -27,8 +40,12 @@ export function configProblems(config, { allowedOwners = ALLOWED_OWNERS } = {}) 
     const rules = config.rules;
     if (!rules || typeof rules !== 'object') problems.push('rules 必须是对象');
     else {
-      if (rules.reservedPaths !== undefined && !Array.isArray(rules.reservedPaths)) {
-        problems.push('rules.reservedPaths 必须是数组');
+      if (rules.reservedPaths !== undefined) {
+        if (!Array.isArray(rules.reservedPaths)) {
+          problems.push('rules.reservedPaths 必须是数组');
+        } else if (normalizedList(rules.reservedPaths).join('|') !== normalizedList(RESERVED_PATHS).join('|')) {
+          problems.push('rules.reservedPaths 与共享规则 content-rules.js 不一致（修改请走 rules:sync）');
+        }
       }
       if (rules.maxUploadMb !== undefined && !(Number.isFinite(rules.maxUploadMb) && rules.maxUploadMb > 0)) {
         problems.push('rules.maxUploadMb 必须是正数');
@@ -43,7 +60,7 @@ export function configProblems(config, { allowedOwners = ALLOWED_OWNERS } = {}) 
 
 export async function sha256Hex(text, subtle = globalThis.crypto?.subtle) {
   if (!subtle) return '';
-  const bytes = new TextEncoder().encode(text);
+  const bytes = new TextEncoder().encode(String(text).replace(/\r\n/g, '\n'));
   const digest = await subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -68,9 +85,56 @@ export function defaultConfig() {
   return DEFAULT_CONFIG;
 }
 
+/** Upload ceiling from the active config (defaults to 20 MB). */
+export function activeMaxUploadMb() {
+  const value = Number(active.config?.rules?.maxUploadMb);
+  return Number.isFinite(value) && value > 0 ? value : 20;
+}
+
+function readApproval() {
+  try {
+    return globalThis.localStorage?.getItem(APPROVAL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeApproval(hash) {
+  try {
+    if (hash) globalThis.localStorage?.setItem(APPROVAL_KEY, hash);
+  } catch {
+    // Private mode / quota: the choice lasts for this session.
+  }
+}
+
+/** @returns {{config: object, hash: string, problems: string[]}|null} */
+export function pendingConfig() {
+  return pending;
+}
+
+/** Use the remote config after the user explicitly approved the repo change. */
+export function approvePendingConfig() {
+  if (!pending) return null;
+  const approved = pending;
+  pending = null;
+  writeApproval(approved.hash);
+  return applyEditorConfig(approved.config, { source: 'remote', verified: false, problems: [] });
+}
+
+/** Keep the built-in config; remember the choice so we do not nag every boot. */
+export function dismissPendingConfig() {
+  if (!pending) return false;
+  writeApproval(pending.hash);
+  pending = null;
+  return true;
+}
+
 /**
  * Fetch editor-config.json, verify its pinned hash, then apply it when the
  * whitelist passes. Never throws: a failure keeps the built-in config.
+ *
+ * A config that is whitelisted but both unpinned and pointed at a different
+ * repository is held in `pendingConfig()` instead of being applied silently.
  */
 export async function loadEditorConfig({ fetchImpl = globalThis.fetch, subtle = globalThis.crypto?.subtle } = {}) {
   try {
@@ -86,7 +150,19 @@ export async function loadEditorConfig({ fetchImpl = globalThis.fetch, subtle = 
       return applyEditorConfig(DEFAULT_CONFIG, { source: 'default', verified: true, problems });
     }
     const hash = await sha256Hex(text, subtle);
-    const verified = !hash || hash === CONFIG_SHA256;
+    const verified = Boolean(hash) && hash === CONFIG_SHA256;
+    const repoChanged =
+      config.content.owner !== DEFAULT_CONFIG.content.owner ||
+      config.content.repo !== DEFAULT_CONFIG.content.repo ||
+      config.editor.owner !== DEFAULT_CONFIG.editor.owner ||
+      config.editor.repo !== DEFAULT_CONFIG.editor.repo;
+
+    if (!verified && repoChanged && readApproval() !== hash) {
+      pending = { config, hash, problems: [] };
+      console.warn('[config] 远程配置指向其他仓库且未通过哈希固定，等待用户确认');
+      return { ...active, pending: true };
+    }
+
     return applyEditorConfig(config, { source: 'remote', verified, problems: [] });
   } catch (error) {
     console.warn('[config] 读取 editor-config.json 失败，使用内置配置', error);

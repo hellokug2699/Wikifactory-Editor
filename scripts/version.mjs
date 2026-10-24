@@ -43,8 +43,13 @@ export function desktopManifestSource(version = VERSION) {
   )}\n`;
 }
 
+/** Generated-file checks compare bytes, so normalize line endings first. */
+function readText(file) {
+  return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+}
+
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  return JSON.parse(readText(file));
 }
 
 function writeJson(file, data) {
@@ -65,7 +70,7 @@ export function checkVersionFiles(root) {
 
   const versionFile = path.join(root, 'app/assets/js/version.js');
   const expected = versionModuleSource();
-  if (!fs.existsSync(versionFile) || fs.readFileSync(versionFile, 'utf8') !== expected) {
+  if (!fs.existsSync(versionFile) || readText(versionFile) !== expected) {
     problems.push('app/assets/js/version.js 未同步（运行 npm run version:sync）');
   }
 
@@ -76,7 +81,7 @@ export function checkVersionFiles(root) {
   }
 
   const gradlePath = path.join(root, 'android/app/build.gradle');
-  const gradle = fs.readFileSync(gradlePath, 'utf8');
+  const gradle = readText(gradlePath);
   const fallbackCode = /findProperty\('appVersionCode'\)\s*\?:\s*'(\d+)'/.exec(gradle);
   const fallbackName = /findProperty\('appVersionName'\)\s*\?:\s*'([^']+)'/.exec(gradle);
   if (!/versionCode\s+appVersionCode/.test(gradle) || !/versionName\s+appVersionName/.test(gradle)) {
@@ -91,11 +96,11 @@ export function checkVersionFiles(root) {
 
   const manifestPath = path.join(root, 'updates/desktop.json');
   const manifestSource = desktopManifestSource();
-  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestSource) {
+  if (!fs.existsSync(manifestPath) || readText(manifestPath) !== manifestSource) {
     problems.push('updates/desktop.json 未同步');
   }
 
-  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const readme = readText(path.join(root, 'README.md'));
   if (!readme.includes(`## 下载（v${VERSION}）`)) problems.push(`README 下载章节不是 v${VERSION}`);
   if (!readme.includes(`## v${VERSION} `)) problems.push(`README 缺少 v${VERSION} 更新章节`);
 
@@ -133,7 +138,7 @@ export function syncVersionFiles(root) {
 
   const versionFile = path.join(root, 'app/assets/js/version.js');
   const expected = versionModuleSource();
-  if (!fs.existsSync(versionFile) || fs.readFileSync(versionFile, 'utf8') !== expected) {
+  if (!fs.existsSync(versionFile) || readText(versionFile) !== expected) {
     fs.writeFileSync(versionFile, expected);
     changed.push('app/assets/js/version.js');
   }
@@ -148,7 +153,7 @@ export function syncVersionFiles(root) {
   }
 
   const gradlePath = path.join(root, 'android/app/build.gradle');
-  const gradle = fs.readFileSync(gradlePath, 'utf8');
+  const gradle = readText(gradlePath);
   const next = gradle
     .replace(/(findProperty\('appVersionCode'\)\s*\?:\s*')\d+(')/, `$1${VERSION_CODE}$2`)
     .replace(/(findProperty\('appVersionName'\)\s*\?:\s*')[^']+(')/, `$1${VERSION}$2`);
@@ -160,7 +165,7 @@ export function syncVersionFiles(root) {
   const manifestDir = path.join(root, 'updates');
   const manifestPath = path.join(manifestDir, 'desktop.json');
   const manifestSource = desktopManifestSource();
-  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestSource) {
+  if (!fs.existsSync(manifestPath) || readText(manifestPath) !== manifestSource) {
     fs.mkdirSync(manifestDir, { recursive: true });
     fs.writeFileSync(manifestPath, manifestSource);
     changed.push('updates/desktop.json');

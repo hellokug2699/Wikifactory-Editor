@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { RESERVED_PATHS } from '../app/assets/js/content-rules.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = path.join(root, 'editor-config.json');
@@ -25,8 +26,9 @@ export const FORBIDDEN_REPOS = ['core', 'alias', 'wikifactory-core', 'wikifactor
 const OWNER_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 
+/** Hash the canonical LF form so Windows checkouts cannot change the pin. */
 export function configHash(text) {
-  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+  return crypto.createHash('sha256').update(String(text).replace(/\r\n/g, '\n'), 'utf8').digest('hex');
 }
 
 /** @returns {string[]} problems (empty when the config is acceptable) */
@@ -52,8 +54,20 @@ export function validateConfig(config, { allowedOwners = ALLOWED_OWNERS } = {}) 
   if (rules !== undefined) {
     if (!rules || typeof rules !== 'object') problems.push('rules 必须是对象');
     else {
-      if (rules.reservedPaths !== undefined && !Array.isArray(rules.reservedPaths)) {
-        problems.push('rules.reservedPaths 必须是数组');
+      if (rules.reservedPaths !== undefined) {
+        if (!Array.isArray(rules.reservedPaths)) {
+          problems.push('rules.reservedPaths 必须是数组');
+        } else if (
+          rules.reservedPaths
+            .map((item) => String(item).toLowerCase())
+            .sort()
+            .join('|') !==
+          RESERVED_PATHS.map((item) => item.toLowerCase())
+            .sort()
+            .join('|')
+        ) {
+          problems.push('rules.reservedPaths 必须与 content-rules.js 一致（修改请走 rules:sync）');
+        }
       }
       if (rules.maxUploadMb !== undefined && !(Number.isFinite(rules.maxUploadMb) && rules.maxUploadMb > 0)) {
         problems.push('rules.maxUploadMb 必须是正数');
@@ -90,7 +104,8 @@ export function checkEditorConfig() {
   const url = `https://raw.githubusercontent.com/${config.editor.owner}/${config.editor.repo}/main/editor-config.json`;
   const expected = generatedSource({ config, hash: configHash(text), url });
   if (!fs.existsSync(outPath)) return ['app/assets/js/editor-config.js 缺失（运行 npm run config:sync）'];
-  if (fs.readFileSync(outPath, 'utf8') !== expected) {
+  const actual = fs.readFileSync(outPath, 'utf8').replace(/\r\n/g, '\n');
+  if (actual !== expected) {
     return ['app/assets/js/editor-config.js 未同步（运行 npm run config:sync）'];
   }
   return [];

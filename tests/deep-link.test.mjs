@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   appLinkFor,
   importedPagePath,
+  isSafeContentPath,
   normalizeContentPath,
   parseDeepLink,
   siteUrlFor,
@@ -37,6 +38,21 @@ test('unrelated links are rejected with a reason', () => {
     assert.equal(result.ok, false, href);
     assert.ok(result.reason, `${href} missing reason`);
   }
+});
+
+test('dot segments and unsafe characters are rejected', () => {
+  for (const href of [
+    'games/../../etc/passwd',
+    'games/A/B/../../secret',
+    'wikifactory-editor://open?path=games/../secret',
+    'games/A/B/%2e%2e/secret',
+    'games/A\\B\\C',
+  ]) {
+    const result = parseDeepLink(href);
+    assert.equal(result.ok, false, href);
+  }
+  assert.equal(isSafeContentPath('games/A/B/C.md'), true);
+  assert.equal(isSafeContentPath('games/A/./C.md'), false);
 });
 
 test('assets are recognised, not treated as pages', () => {

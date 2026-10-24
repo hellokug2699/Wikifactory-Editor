@@ -7,6 +7,7 @@
  */
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -15,18 +16,61 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const appDir = path.join(root, 'app');
 const PAGE_PATH = 'games/Example/Guides/New-Page.md';
 
+function browserCacheRoots() {
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) return [process.env.PLAYWRIGHT_BROWSERS_PATH];
+  const home = os.homedir();
+  return [
+    path.join(home, '.cache/ms-playwright'),
+    path.join(home, 'Library/Caches/ms-playwright'),
+    path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ms-playwright'),
+  ];
+}
+
+/** Binary layout differs by Playwright version and platform. */
+function browserCandidates(cache) {
+  const out = [];
+  if (!fs.existsSync(cache)) return out;
+  for (const entry of fs.readdirSync(cache)) {
+    if (!/^chromium-/.test(entry)) continue;
+    const base = path.join(cache, entry);
+    out.push(
+      path.join(base, 'chrome-linux64/chrome'),
+      path.join(base, 'chrome-linux/chrome'),
+      path.join(base, 'chrome-win64/chrome.exe'),
+      path.join(base, 'chrome-win/chrome.exe'),
+      path.join(base, 'chrome-mac/Chromium.app/Contents/MacOS/Chromium'),
+      path.join(base, 'chrome-headless-shell-linux64/chrome-headless-shell'),
+      path.join(base, 'chrome-headless-shell-win64/chrome-headless-shell.exe'),
+    );
+  }
+  return out;
+}
+
+function systemBrowser() {
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+          'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+          'C:/Program Files/Google/Chrome/Application/chrome.exe',
+          'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+        ]
+      : process.platform === 'darwin'
+        ? [
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+          ]
+        : ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+  return candidates.find((file) => fs.existsSync(file)) || '';
+}
+
 function findChromium() {
   if (process.env.PW_CHROME) return process.env.PW_CHROME;
-  const cache = path.join(process.env.HOME || '/root', '.cache/ms-playwright');
-  if (!fs.existsSync(cache)) return '';
-  for (const entry of fs.readdirSync(cache)) {
-    if (!entry.startsWith('chromium-')) continue;
-    const candidate = path.join(cache, entry, 'chrome-linux64/chrome');
-    if (fs.existsSync(candidate)) return candidate;
-    const legacy = path.join(cache, entry, 'chrome-linux/chrome');
-    if (fs.existsSync(legacy)) return legacy;
+  for (const cache of browserCacheRoots()) {
+    const hit = browserCandidates(cache).find((file) => fs.existsSync(file));
+    if (hit) return hit;
   }
-  return '';
+  return systemBrowser();
 }
 
 const MIME = {
@@ -44,7 +88,8 @@ function startServer() {
   const server = http.createServer((req, res) => {
     const url = decodeURIComponent((req.url || '/').split('?')[0]);
     let file = path.join(appDir, url === '/' ? 'index.html' : url);
-    if (!file.startsWith(appDir)) {
+    const relative = path.relative(appDir, file);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
       res.writeHead(403).end('forbidden');
       return;
     }
@@ -65,6 +110,8 @@ const PAGE_B64 = Buffer.from(PAGE_TEXT, 'utf8').toString('base64');
 const sha = (char) => char.repeat(40);
 
 async function mockGitHub(page) {
+  // Keep the run hermetic: no remote editor-config.json fetch.
+  await page.route('**/raw.githubusercontent.com/**', (route) => route.fulfill({ status: 404, body: '' }));
   await page.route('**/api.github.com/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -145,6 +192,10 @@ function assert(condition, message) {
 
 const chromiumPath = findChromium();
 if (!chromiumPath) {
+  if (process.env.REQUIRE_E2E === '1') {
+    console.error('[e2e] 未找到 Chromium，且 REQUIRE_E2E=1：请安装 Playwright 浏览器或设置 PW_CHROME。');
+    process.exit(1);
+  }
   console.log('[e2e] 未找到本地 Chromium，跳过（设置 PW_CHROME 或安装 Playwright 浏览器）。');
   process.exit(0);
 }

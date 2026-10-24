@@ -63,8 +63,16 @@ import { compareVersions, desktopManifestUrl, planUpdate, releaseAsset } from '.
 import { parseDeepLink, importedPagePath } from './deep-link.js';
 import { commentSummary, mergeGuidance, reviewLabel, summarizeReview } from './review.js';
 import { linkScanTargets, pageIdOf, planRename, renamePagePath, rewritePageLinks } from './batch.js';
+import { mapWithConcurrency } from './async-pool.js';
 import { applyI18n, LANGS, setLang, t, tOr } from './i18n.js';
-import { activeConfig, loadEditorConfig } from './config.js';
+import {
+  activeConfig,
+  activeMaxUploadMb,
+  approvePendingConfig,
+  dismissPendingConfig,
+  loadEditorConfig,
+  pendingConfig,
+} from './config.js';
 import {
   applyTheme,
   confirmDialog,
@@ -707,8 +715,19 @@ function assetsForPreview() {
 
 /* ------------------------------------------------- paste / drop image files */
 
-const MAX_UPLOAD_BYTES = 1024 * 1024;
 const MAX_IMAGE_EDGE = 1600;
+
+/** Upload ceiling from editor-config.json (default 20 MB), in bytes. */
+function maxUploadBytes() {
+  return Math.round(activeMaxUploadMb() * 1024 * 1024);
+}
+
+/** Reject a picked file early with a consistent message. */
+function tooLarge(file) {
+  if (file.size <= maxUploadBytes()) return false;
+  toast(`文件 ${formatBytes(file.size)} 超过上传上限 ${activeMaxUploadMb()} MB。`, 'error', 4600);
+  return true;
+}
 
 function sanitizeAssetName(name, fallback = `pasted-${Date.now()}`) {
   const cleaned = String(name || '')
@@ -750,28 +769,38 @@ async function shrinkImage(file) {
 /** @returns {Promise<{name:string,dataUrl:string,base64:string,size:number,compressed:boolean}>} */
 async function prepareImageAsset(file) {
   const safeName = sanitizeAssetName(file.name);
-  const original = await readAsDataUrl(file);
+  const limit = maxUploadBytes();
   const skippable = /^image\/(gif|svg\+xml)$/i.test(file.type);
-  if (file.size <= MAX_UPLOAD_BYTES || skippable) {
+  // Read the original lazily: a 40 MB PNG that can be re-encoded never has to
+  // be held as a base64 string first.
+  const originalAsset = async () => {
+    const dataUrl = await readAsDataUrl(file);
     return {
       name: safeName,
-      dataUrl: original,
-      base64: original.split(',')[1] || '',
+      dataUrl,
+      base64: dataUrl.split(',')[1] || '',
       size: file.size,
       compressed: false,
     };
+  };
+
+  if (skippable) {
+    if (file.size > limit) {
+      throw new Error(`文件 ${formatBytes(file.size)} 超过 ${activeMaxUploadMb()} MB，且 GIF / SVG 无法自动压缩`);
+    }
+    return originalAsset();
   }
+  // Small rasters stay byte-identical, but never ignore a lower configured limit.
+  if (file.size <= 1024 * 1024 && file.size <= limit) return originalAsset();
+
   try {
     const shrunk = await shrinkImage(file);
     const size = dataUrlBytes(shrunk.dataUrl);
-    if (size >= file.size) {
-      return {
-        name: safeName,
-        dataUrl: original,
-        base64: original.split(',')[1] || '',
-        size: file.size,
-        compressed: false,
-      };
+    if (size >= file.size || size > limit) {
+      if (file.size > limit) {
+        throw new Error(`文件 ${formatBytes(file.size)} 超过 ${activeMaxUploadMb()} MB 且无法压缩到上限内`);
+      }
+      return originalAsset();
     }
     const stem = stripExt(safeName).replace(/[^a-zA-Z0-9._-]+/g, '-') || 'pasted-image';
     return {
@@ -781,14 +810,12 @@ async function prepareImageAsset(file) {
       size,
       compressed: true,
     };
-  } catch {
-    return {
-      name: safeName,
-      dataUrl: original,
-      base64: original.split(',')[1] || '',
-      size: file.size,
-      compressed: false,
-    };
+  } catch (error) {
+    if (error?.message?.includes('MB')) throw error;
+    if (file.size > limit) {
+      throw new Error(`文件 ${formatBytes(file.size)} 超过 ${activeMaxUploadMb()} MB`, { cause: error });
+    }
+    return originalAsset();
   }
 }
 
@@ -802,6 +829,7 @@ async function addImageFiles(files) {
   const markers = [];
   let compressed = 0;
   let failed = 0;
+  let lastError = '';
   for (const file of files) {
     try {
       const prepared = await prepareImageAsset(file);
@@ -818,12 +846,13 @@ async function addImageFiles(files) {
       if (existing >= 0) assets.splice(existing, 1, asset);
       else assets.push(asset);
       markers.push(`[[File/${prepared.name}|md]]`);
-    } catch {
+    } catch (error) {
       failed += 1;
+      lastError = error?.message || '';
     }
   }
   if (!markers.length) {
-    toast('图片读取失败，未加入待上传列表。', 'error');
+    toast(lastError || '图片读取失败，未加入待上传列表。', 'error', 5200);
     return;
   }
   renderAssets();
@@ -831,7 +860,7 @@ async function addImageFiles(files) {
   bodyEditor.insertBlock(markers.join('\n\n'));
   const parts = [`已加入待上传列表：${markers.length} 张图片`];
   if (compressed) parts.push(`${compressed} 张已压缩到 ${MAX_IMAGE_EDGE}px 内`);
-  if (failed) parts.push(`${failed} 张读取失败`);
+  if (failed) parts.push(`${failed} 张失败${lastError ? `：${lastError}` : ''}`);
   toast(parts.join('；'), failed ? 'info' : 'success', 4200);
 }
 
@@ -1809,6 +1838,10 @@ function openIconDialog() {
       toast(`图标格式 .${ext || '?'} 不受支持：${ICON_EXTENSIONS.join(' / ')}`, 'error', 4200);
       return;
     }
+    if (tooLarge(file)) {
+      fileInput.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       picked = {
@@ -2229,6 +2262,10 @@ function openImageDialog() {
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     if (!file) return;
+    if (tooLarge(file)) {
+      fileInput.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result);
@@ -2411,6 +2448,10 @@ function openAudioDialog() {
     if (!/\.ogg$/i.test(file.name)) {
       fileInput.value = '';
       toast('音频仅支持 .ogg 格式。', 'error', 4200);
+      return;
+    }
+    if (tooLarge(file)) {
+      fileInput.value = '';
       return;
     }
     const reader = new FileReader();
@@ -4137,24 +4178,66 @@ function openMobileMenu() {
 /** Reflect the active (possibly remote) editor-config.json in the UI. */
 function updateRepoScope() {
   const config = activeConfig();
+  const pending = pendingConfig();
   const scope = `${CONTENT_OWNER}/${CONTENT_REPO}`;
   const note = $('#repo-scope-note');
   if (note) {
+    const pendingBlock = pending
+      ? `<div class="form-note is-warn" style="margin-top:8px">
+          ${t('cfg.pending', {
+            repo: `<code>${escapeHtml(`${pending.config.content.owner}/${pending.config.content.repo}`)}</code>`,
+          })}
+          <div class="button-row" style="margin-top:6px">
+            <button class="btn btn-small btn-primary" type="button" id="cfg-approve">${t('cfg.pendingApprove')}</button>
+            <button class="btn btn-small" type="button" id="cfg-dismiss">${t('cfg.pendingKeep')}</button>
+          </div>
+        </div>`
+      : '';
     note.innerHTML = `仅可读取与修改 <code>${escapeHtml(scope)}</code>。Core / Alias 仓库不在本编辑器的访问范围内。${
       config.source === 'remote'
         ? `<br>仓库地址来自 <code>editor-config.json</code>${escapeHtml(
             config.verified ? t('cfg.verified') : t('cfg.unverified'),
           )}。`
         : ''
-    }`;
+    }${pendingBlock}`;
   }
   els.statRepo.textContent = scope;
-  if (config.source === 'remote' && !config.verified) {
+  if (pending) {
+    toast(t('cfg.pendingToast'), 'info', 6200);
+  } else if (config.source === 'remote' && !config.verified) {
     toast(`${t('cfg.remote')}${t('cfg.unverified')}`, 'info', 5600);
   }
   if (config.problems?.length) {
     toast(`${t('cfg.rejected')}：${config.problems[0]}`, 'error', 5600);
   }
+}
+
+/** Confirm a pending remote config after the user explicitly reviewed it. */
+async function confirmPendingConfig() {
+  const pending = pendingConfig();
+  if (!pending) return;
+  const target = `${pending.config.content.owner}/${pending.config.content.repo}`;
+  const ok = await confirmDialog({
+    title: t('cfg.confirmTitle'),
+    messageHtml: true,
+    message: t('cfg.confirmBody', {
+      builtin: `<code>${escapeHtml(`${CONTENT_OWNER}/${CONTENT_REPO}`)}</code>`,
+      remote: `<code>${escapeHtml(target)}</code>`,
+    }),
+    confirmText: t('cfg.confirmEnable'),
+  });
+  if (!ok) return;
+  if (!approvePendingConfig()) return;
+  repoIndex = null;
+  updateRepoScope();
+  toast(t('cfg.confirmed', { repo: target }), 'success', 5200);
+}
+
+/** Keep the built-in config and remember the decision for this config hash. */
+function keepBuiltInConfig() {
+  dismissPendingConfig();
+  updateRepoScope();
+  toast(t('cfg.kept'), 'info', 4200);
 }
 
 /* ------------------------------------------------------------ deep links */
@@ -4164,6 +4247,10 @@ async function openDeepLink(href, { silent = false } = {}) {
   const target = parseDeepLink(href);
   if (!target.ok) {
     toast(`链接无法打开：${target.reason || '未知原因'}`, 'error', 4200);
+    return false;
+  }
+  if (!isSafeRepoPath(target.path)) {
+    toast('链接指向的仓库路径不合法，已拒绝打开。', 'error', 4200);
     return false;
   }
   if (target.kind === 'asset') {
@@ -4631,8 +4718,9 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
   }
   const confirmed = await confirmDialog({
     title: '确认批量重命名',
+    messageHtml: true,
     message: `${valid
-      .map((plan) => `${plan.from} → ${plan.to}`)
+      .map((plan) => `${escapeHtml(plan.from)} → ${escapeHtml(plan.to)}`)
       .join(
         '<br>',
       )}<br>${scanLinks ? '<br>同时会扫描同游戏目录下的页面并改写站内链接。' : ''}<br><br>这会创建一个 PR。`,
@@ -4657,13 +4745,24 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
     : valid.map((plan) => plan.from);
   const client = new GitHubClient(sessionToken);
   const bodies = new Map();
-  for (const path of targets.slice(0, 60)) {
+  // Bounded concurrency: a 200-page game folder would otherwise fire hundreds of
+  // sequential requests and can hit GitHub's secondary rate limit.
+  const MAX_LINK_SCAN = 200;
+  const scanTargets = targets.slice(0, MAX_LINK_SCAN);
+  if (targets.length > scanTargets.length) {
+    log(`待扫描 ${targets.length} 个页面，仅处理前 ${scanTargets.length} 个；其余页面的链接未改写`, 'err');
+  }
+  const loaded = await mapWithConcurrency(scanTargets, 4, async (path) => {
     try {
       const file = await client.loadFile(CONTENT_OWNER, CONTENT_REPO, path, state.settings.branch || '');
-      bodies.set(path, file.text);
+      return { path, text: file.text };
     } catch (error) {
       log(`跳过 ${path}：${error.message}`, 'err');
+      return null;
     }
+  });
+  for (const item of loaded) {
+    if (item) bodies.set(item.path, item.text);
   }
   log(`读取 ${bodies.size} 个页面`, 'ok');
 
@@ -4746,6 +4845,17 @@ function bindEvents() {
     if (button) handleToolbarAction(button.dataset.action);
   });
 
+  // Remote config approval lives in the sidebar note and can be re-rendered.
+  document.addEventListener('click', (event) => {
+    if (event.target.closest?.('#cfg-approve')) {
+      event.preventDefault();
+      confirmPendingConfig();
+    } else if (event.target.closest?.('#cfg-dismiss')) {
+      event.preventDefault();
+      keepBuiltInConfig();
+    }
+  });
+
   els.editorTabs.addEventListener('click', (event) => {
     const tab = event.target.closest('.editor-tab');
     if (tab) setEditorTab(tab.dataset.tab);
@@ -4807,12 +4917,28 @@ function bindEvents() {
 
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('click', (event) => {
+    // Preview `[[页面]]` links open the page inside the editor instead of doing nothing.
+    const wikiLink = event.target.closest?.('a.wf-link-preview[data-target]');
+    if (wikiLink) {
+      const rawTarget = wikiLink.dataset.target || '';
+      const pageId = rawTarget.split('#')[0].trim();
+      const game = gameOfPath(state.content.path);
+      const repoPath = pageId.includes('/') ? `games/${pageId}.md` : game && pageId ? `games/${game}/${pageId}.md` : '';
+      if (repoPath) {
+        event.preventDefault();
+        openDeepLink(repoPath);
+        return;
+      }
+    }
     const link = event.target.closest?.('a[href]');
     if (!link) return;
     const href = link.getAttribute('href') || '';
     if (!/^https?:\/\//i.test(href)) return;
     event.preventDefault();
-    openExternal(link.href);
+    // Site pages are handled in-app (avoids an Android intent round-trip).
+    const deep = parseDeepLink(href);
+    if (deep.ok && deep.kind === 'page') openDeepLink(href);
+    else openExternal(link.href);
   });
   window.addEventListener('beforeunload', (event) => {
     if (!hasSessionChanges()) {
@@ -5051,6 +5177,18 @@ function registerServiceWorker() {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register(new URL('sw.js', document.baseURI))
+      .then((registration) => {
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener('statechange', () => {
+            // Only notify when an older worker is already controlling the page.
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+              toast('新版本已下载，刷新页面后生效。', 'info', 6200);
+            }
+          });
+        });
+      })
       .catch((error) => console.warn('[pwa] Service Worker 注册失败', error));
   });
 }

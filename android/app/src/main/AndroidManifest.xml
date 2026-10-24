@@ -25,8 +25,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep links: https://wikifactory.top/games/… opens the page in the app. -->
-            <intent-filter>
+            <!-- Deep links: https://wikifactory.top/games/… opens the page in the app.
+                 autoVerify reads https://wikifactory.top/.well-known/assetlinks.json
+                 (maintained in Wikifactory-Core/public/.well-known/). Without a
+                 verified file the system falls back to the "open with" chooser. -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />

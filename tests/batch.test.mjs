@@ -31,6 +31,27 @@ test('rename plans reject conflicts and no-ops', () => {
   assert.equal(renameSummary([conflict, same]), '1 个失败');
 });
 
+test('rename plans apply the shared path rules', () => {
+  const base = { from: 'games/A/B/Old.md', repoPaths: ['games/A/B/Old.md'] };
+  assert.match(planRename({ ...base, to: 'games/A/B/Bad:Name.md' }).error, /非法字符/);
+  assert.match(planRename({ ...base, to: 'games/../B/New.md' }).error, /点段/);
+  assert.match(planRename({ ...base, to: 'games/search/B/New.md' }).error, /保留路径/);
+  assert.match(planRename({ ...base, to: 'games/A/Old.md' }).error, /层级不足/);
+  assert.match(planRename({ ...base, to: 'games/A/B/New.MD' }).error, /扩展名/);
+  assert.match(planRename({ ...base, to: 'games/A/B/' }).error, /目标路径不是页面/);
+  assert.equal(renamePagePath('games/A/B/Old.md', 'sub/New'), '');
+});
+
+test('rename plans catch .md / .mdx URL collisions', () => {
+  const plan = planRename({
+    from: 'games/A/B/Old.md',
+    to: 'games/A/B/MAM.md',
+    repoPaths: ['games/A/B/MAM.mdx'],
+  });
+  assert.equal(plan.ok, false);
+  assert.match(plan.error, /URL 冲突/);
+});
+
 test('internal links are rewritten in every supported form', () => {
   const body = [
     '见 [[Example/Guides/Old-Page]] 与 [[Example/Guides/Old-Page|旧页面]]。',

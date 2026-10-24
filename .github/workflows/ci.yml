@@ -9,8 +9,15 @@ permissions:
   contents: read
 
 jobs:
+  # Lint + unit tests on both platforms: the generated-file checks compare
+  # bytes, so a Windows checkout must be verified too (see .gitattributes).
   verify:
-    runs-on: ubuntu-latest
+    name: Verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,3 +34,26 @@ jobs:
 
       - name: Self-tests
         run: npm test
+
+  # The Playwright smoke test needs a browser, which `npm ci` does not install.
+  e2e:
+    name: End-to-end smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx --yes playwright@1.64.1 install --with-deps chromium
+
+      - name: Run main flow
+        env:
+          REQUIRE_E2E: '1'
+        run: npm run test:e2e
