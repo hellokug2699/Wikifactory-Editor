@@ -25,6 +25,20 @@ export {
   undo,
   redo,
 } from '@codemirror/commands';
+export {
+  search,
+  searchKeymap,
+  highlightSelectionMatches,
+  openSearchPanel,
+} from '@codemirror/search';
+export {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  startCompletion,
+} from '@codemirror/autocomplete';
+export { setDiagnostics, lintGutter } from '@codemirror/lint';
 export { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 export { yaml } from '@codemirror/lang-yaml';
 export { javascript } from '@codemirror/lang-javascript';

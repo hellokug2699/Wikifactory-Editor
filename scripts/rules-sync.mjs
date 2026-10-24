@@ -64,7 +64,9 @@ if (mode === '--check') {
   }
   const targetHash = crypto.createHash('sha256').update(fs.readFileSync(targetFile)).digest('hex');
   if (targetHash !== hash) {
-    console.error(`共享规则不一致：\n  编辑器 ${hash}\n  内容仓库 ${targetHash}\n请运行 node scripts/rules-sync.mjs --write ${targetRepo}`);
+    console.error(
+      `共享规则不一致：\n  编辑器 ${hash}\n  内容仓库 ${targetHash}\n请运行 node scripts/rules-sync.mjs --write ${targetRepo}`,
+    );
     process.exit(1);
   }
   if (fs.existsSync(checksumFile)) {

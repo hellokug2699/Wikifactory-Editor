@@ -25,12 +25,23 @@ function ensureBinaries() {
 
   if (!fs.existsSync(releaseZip)) {
     console.log(`[desktop] 下载 Neutralinojs v${neutralinoVersion}…`);
-    execFileSync('curl', [
-      '-L', '--fail', '--retry', '3', '-o', releaseZip,
-      `https://github.com/neutralinojs/neutralinojs/releases/download/v${neutralinoVersion}/neutralinojs-v${neutralinoVersion}.zip`,
-    ], { stdio: 'inherit' });
+    execFileSync(
+      'curl',
+      [
+        '-L',
+        '--fail',
+        '--retry',
+        '3',
+        '-o',
+        releaseZip,
+        `https://github.com/neutralinojs/neutralinojs/releases/download/v${neutralinoVersion}/neutralinojs-v${neutralinoVersion}.zip`,
+      ],
+      { stdio: 'inherit' },
+    );
   }
-  execFileSync('unzip', ['-o', '-j', releaseZip, 'neutralino-win_x64.exe', 'neutralino-linux_x64', '-d', binDir], { stdio: 'inherit' });
+  execFileSync('unzip', ['-o', '-j', releaseZip, 'neutralino-win_x64.exe', 'neutralino-linux_x64', '-d', binDir], {
+    stdio: 'inherit',
+  });
 }
 
 function runNeu(args) {

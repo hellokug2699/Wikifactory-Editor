@@ -6,8 +6,6 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
   --topbar-h: 62px;
   --sidebar-w: 304px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
   --radius-lg: 18px;
   --shadow-sm: 0 1px 2px rgb(9 16 32 / 8%);
   --shadow-md: 0 10px 30px rgb(9 16 32 / 12%);
@@ -28,7 +26,6 @@ html[data-theme='light'] {
   --text-soft: #4f5b70;
   --text-faint: #8590a6;
   --accent: #4f7cff;
-  --accent-strong: #3864de;
   --accent-soft: #edf2ff;
   --accent-ink: #ffffff;
   --success: #1d9b64;
@@ -74,7 +71,6 @@ html[data-theme='dark'] {
   --text-soft: #a7b3c9;
   --text-faint: #75829c;
   --accent: #7b9bff;
-  --accent-strong: #9bb2ff;
   --accent-soft: #192446;
   --accent-ink: #08101f;
   --success: #54d39b;
@@ -86,7 +82,6 @@ html[data-theme='dark'] {
   --code-bg: #0c1322;
   --toolbar-bg: #0e1625;
   --editor-bg: #0b1220;
-  --gutter: #0e1626;
   --scrim: rgb(2 6 14 / 62%);
 
   /* CodeMirror syntax tokens */
@@ -454,6 +449,22 @@ select.input {
 }
 .asset-remove:hover { background: var(--danger-soft); color: var(--danger); }
 .empty-mini { font-size: 11.5px; color: var(--text-faint); padding: 2px 0 0; }
+
+/* 最近草稿 */
+.draft-list { display: flex; flex-direction: column; gap: 8px; }
+.draft-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.draft-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.draft-title { font-size: 12.5px; font-weight: 600; }
+.draft-path { font-size: 11px; color: var(--text-soft); word-break: break-all; }
+.draft-meta { font-size: 10.5px; color: var(--text-faint); }
+.draft-actions { display: flex; gap: 6px; flex: none; }
+#btn-content-drafts .badge { margin-left: 4px; }
 
 .segmented {
   display: inline-flex;

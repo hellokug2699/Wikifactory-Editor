@@ -1,18 +1,53 @@
 /** Wikifactory Content rules: page paths, frontmatter and Wiki syntax. */
 
 import {
-  AUDIO_DIR, AUDIO_EXTENSIONS, EMBED_PROVIDERS, GATE_DATE_RE, ICON_DIR, ICON_EXTENSIONS,
-  ICON_NAME_RE, IMAGE_DIR, IMAGE_EXTENSIONS, PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS,
-  RESERVED_PATHS, audioFileName, audioNameProblem, audioPathFor, embedTarget,
-  frontmatterTypeProblems, iconPathFor, isAllowedEmbedUrl, isValidGateDate, nameProblem,
-  parseAudioMarker, parseEmbedMarker, tagProblems,
+  AUDIO_DIR,
+  AUDIO_EXTENSIONS,
+  EMBED_PROVIDERS,
+  GATE_DATE_RE,
+  ICON_DIR,
+  ICON_EXTENSIONS,
+  ICON_NAME_RE,
+  IMAGE_DIR,
+  IMAGE_EXTENSIONS,
+  PAGE_TAG_ISSUE_URL,
+  PAGE_TAG_VALUES,
+  PAGE_TAGS,
+  RESERVED_PATHS,
+  audioFileName,
+  audioNameProblem,
+  audioPathFor,
+  embedTarget,
+  frontmatterTypeProblems,
+  iconPathFor,
+  isAllowedEmbedUrl,
+  isValidGateDate,
+  nameProblem,
+  parseAudioMarker,
+  parseEmbedMarker,
+  tagProblems,
 } from './content-rules.js';
 
 export {
-  AUDIO_EXTENSIONS, EMBED_PROVIDERS, GATE_DATE_RE, ICON_EXTENSIONS, ICON_NAME_RE,
-  IMAGE_EXTENSIONS, PAGE_TAG_ISSUE_URL, PAGE_TAG_VALUES, PAGE_TAGS, audioFileName,
-  audioNameProblem, audioPathFor, embedTarget, isAllowedEmbedUrl, isValidGateDate,
-  parseAudioMarker, parseEmbedMarker, RESERVED_PATHS, tagProblems,
+  AUDIO_EXTENSIONS,
+  EMBED_PROVIDERS,
+  GATE_DATE_RE,
+  ICON_EXTENSIONS,
+  ICON_NAME_RE,
+  IMAGE_EXTENSIONS,
+  PAGE_TAG_ISSUE_URL,
+  PAGE_TAG_VALUES,
+  PAGE_TAGS,
+  audioFileName,
+  audioNameProblem,
+  audioPathFor,
+  embedTarget,
+  isAllowedEmbedUrl,
+  isValidGateDate,
+  parseAudioMarker,
+  parseEmbedMarker,
+  RESERVED_PATHS,
+  tagProblems,
 };
 
 export const GAME_IMAGE_DIR = IMAGE_DIR;
@@ -65,7 +100,8 @@ export const COLOR_ALIASES = {
   grey: 'K',
 };
 
-export const CSS_COLOR_RE = /^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\([0-9.,%\s/]+\)|hsla?\([0-9deg.,%\s/]+\)|[a-z]+)$/i;
+export const CSS_COLOR_RE =
+  /^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\([0-9.,%\s/]+\)|hsla?\([0-9deg.,%\s/]+\)|[a-z]+)$/i;
 const SAFE_MEDIA_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 export function issue(severity, message, extra = {}) {
@@ -73,7 +109,10 @@ export function issue(severity, message, extra = {}) {
 }
 
 export function normalizePath(value) {
-  return String(value || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  return String(value || '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
 }
 
 export function lineOf(text, index) {
@@ -131,7 +170,8 @@ function stripQuotes(value) {
 function splitInlineList(value) {
   const inner = value.slice(1, -1).trim();
   if (!inner) return [];
-  return inner.split(',')
+  return inner
+    .split(',')
     .map((part) => coerceValue(part.trim()))
     .filter((item) => item !== '' && item !== null && item !== undefined);
 }
@@ -211,10 +251,13 @@ export function setYamlField(raw, key, value) {
   const keyRe = new RegExp(`^${escapeRegExp(key)}\\s*:`);
   let index = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    if (keyRe.test(lines[i])) { index = i; break; }
+    if (keyRe.test(lines[i])) {
+      index = i;
+      break;
+    }
   }
 
-  let rendered = '';
+  let rendered;
   if (Array.isArray(value)) {
     rendered = value.length ? `[${value.map((item) => yamlScalar(item)).join(', ')}]` : '';
   } else if (value === null || value === undefined || value === '') {
@@ -300,7 +343,8 @@ export function validateFrontmatter(raw) {
 /* ------------------------------------------------------------ wiki syntax */
 
 function maskCode(text) {
-  return text.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, ' '))
+  return text
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, ' '))
     .replace(/~~~[\s\S]*?~~~/g, (block) => block.replace(/[^\n]/g, ' '))
     .replace(/(`+)[\s\S]*?\1/g, (span) => span.replace(/[^\n]/g, ' '));
 }
@@ -308,7 +352,9 @@ function maskCode(text) {
 function resolveCellColor(raw) {
   if (raw.startsWith('&')) {
     const name = raw.slice(1).trim();
-    const color = COLOR_TOKENS[name.toUpperCase()] || (COLOR_ALIASES[name.toLowerCase()] ? COLOR_TOKENS[COLOR_ALIASES[name.toLowerCase()]] : undefined);
+    const color =
+      COLOR_TOKENS[name.toUpperCase()] ||
+      (COLOR_ALIASES[name.toLowerCase()] ? COLOR_TOKENS[COLOR_ALIASES[name.toLowerCase()]] : undefined);
     return color ? { color } : { error: `未知快捷色名「${raw}」` };
   }
   return CSS_COLOR_RE.test(raw) ? { color: raw } : { error: `颜色值不合法「${raw}」` };
@@ -328,7 +374,10 @@ function validateColorOptions(options, line, issues, label = '颜色') {
 
 function parseImageMarker(tail) {
   const separator = tail.includes('|') ? '|' : ';';
-  const parts = tail.split(separator).map((part) => part.trim()).filter(Boolean);
+  const parts = tail
+    .split(separator)
+    .map((part) => part.trim())
+    .filter(Boolean);
   return parts;
 }
 
@@ -353,9 +402,11 @@ export function validateWikiSyntax(text) {
   // Unescaped File: prefix is parsed as a directive by the site build.
   const colonRe = /\[\[(?:File|Image|文件)\s*:(?!\\)[^\]\n]*\]\]/gi;
   for (const match of masked.matchAll(colonRe)) {
-    issues.push(issue('error', '正文图片请使用 File/ 而不是 File:（避免与 ::: 指令冲突）', {
-      line: lineOf(masked, match.index),
-    }));
+    issues.push(
+      issue('error', '正文图片请使用 File/ 而不是 File:（避免与 ::: 指令冲突）', {
+        line: lineOf(masked, match.index),
+      }),
+    );
   }
 
   // Images: `[[File/name|thumb|md|...]]` or `[[File/name;thumb;md]]`
@@ -427,7 +478,10 @@ export function validateWikiSyntax(text) {
   const iconRe = /\[icon=([^\]\n]+)\]/gi;
   for (const match of masked.matchAll(iconRe)) {
     const line = lineOf(masked, match.index);
-    const parts = match[1].split(';').map((part) => part.trim()).filter(Boolean);
+    const parts = match[1]
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean);
     const name = parts[0] || '';
     if (!SAFE_MEDIA_RE.test(name) || name.includes('..')) {
       issues.push(issue('error', `图标名称不安全：${name || '(空)'}`, { line }));
@@ -465,7 +519,8 @@ export function validateWikiSyntax(text) {
     if (/^(?:File|Image|文件|Audio|Embed)\s*[/\\:：]/i.test(match[1])) continue;
     const target = match[1].split('|')[0].trim();
     if (!target) issues.push(issue('error', '站内链接目标为空', { line: lineOf(masked, match.index) }));
-    if (/^[^#].*\\/.test(target)) issues.push(issue('warn', `站内链接包含反斜杠：${target}`, { line: lineOf(masked, match.index) }));
+    if (/^[^#].*\\/.test(target))
+      issues.push(issue('warn', `站内链接包含反斜杠：${target}`, { line: lineOf(masked, match.index) }));
   }
 
   return issues;
@@ -559,9 +614,22 @@ export function validateAudioAvailability(body, { game, audioNames }) {
   if (!game || !audioNames) return issues;
   for (const ref of extractAudioRefs(body)) {
     if (!ref.name || audioNames.has(ref.name)) continue;
-    issues.push(issue('error', `音频文件不存在：${audioPathFor(game, ref.name)}（内容门禁会阻断）`, { line: ref.line }));
+    issues.push(
+      issue('error', `音频文件不存在：${audioPathFor(game, ref.name)}（内容门禁会阻断）`, { line: ref.line }),
+    );
   }
   return issues;
+}
+
+/** Page ids (`Game/Category/Page`) for `[[` completion, derived from the file tree. */
+export function pageIdsFromRepository(repoPaths) {
+  if (!Array.isArray(repoPaths)) return [];
+  const ids = [];
+  for (const path of repoPaths) {
+    if (!path.startsWith('games/') || !/\.(md|mdx)$/i.test(path)) continue;
+    ids.push(path.slice('games/'.length).replace(/\.(md|mdx)$/i, ''));
+  }
+  return ids;
 }
 
 /** Original watch / page URL for an embed provider + id (fallback link). */
@@ -646,26 +714,29 @@ export function validateLinkTargets(body, { game, linkIndex }) {
     if (seen.has(ref.target)) continue;
     seen.add(ref.target);
     const key = linkKey(ref.target);
-    const ok = linkIndex.ids.has(ref.target)
-      || linkIndex.idsKey.has(key)
-      || linkIndex.games.has(ref.target)
-      || linkIndex.gamesKey.has(key)
-      || linkIndex.categories.has(ref.target)
-      || linkIndex.categoriesKey.has(key)
-      || (game && linkIndex.categoriesKey.has(linkKey(`${game}/${ref.target}`)))
-      || (game && linkIndex.titlesByGame.get(game)?.has(key))
-      || (game && linkIndex.slugsByGame.get(game)?.has(key))
-      || [...linkIndex.titlesByGame.values()].some((set) => set.has(key))
-      || [...linkIndex.slugsByGame.values()].some((set) => set.has(key));
+    const ok =
+      linkIndex.ids.has(ref.target) ||
+      linkIndex.idsKey.has(key) ||
+      linkIndex.games.has(ref.target) ||
+      linkIndex.gamesKey.has(key) ||
+      linkIndex.categories.has(ref.target) ||
+      linkIndex.categoriesKey.has(key) ||
+      (game && linkIndex.categoriesKey.has(linkKey(`${game}/${ref.target}`))) ||
+      (game && linkIndex.titlesByGame.get(game)?.has(key)) ||
+      (game && linkIndex.slugsByGame.get(game)?.has(key)) ||
+      [...linkIndex.titlesByGame.values()].some((set) => set.has(key)) ||
+      [...linkIndex.slugsByGame.values()].some((set) => set.has(key));
     if (ok) continue;
     const explicit = ref.target.includes('/');
-    issues.push(issue(
-      'warn',
-      explicit
-        ? `站内链接目标不存在：${ref.target}（可能是有意提前占位；仅提示，不阻断）`
-        : `站内链接无法解析：${ref.target}（可能是标题 / 别名；仅提示，不阻断）`,
-      { line: ref.line },
-    ));
+    issues.push(
+      issue(
+        'warn',
+        explicit
+          ? `站内链接目标不存在：${ref.target}（可能是有意提前占位；仅提示，不阻断）`
+          : `站内链接无法解析：${ref.target}（可能是标题 / 别名；仅提示，不阻断）`,
+        { line: ref.line },
+      ),
+    );
   }
   return issues;
 }
@@ -704,12 +775,18 @@ export function validateWithRepo({ path, body, repoPaths, extraPaths = [] }) {
   const allPaths = extraPaths.length ? [...repoPaths, ...extraPaths] : repoPaths;
   const game = gameOfPath(path);
   return [
-    ...validateIconAvailability(body, { game, iconNames: repositoryIconNames(allPaths, game) })
-      .map((item) => ({ ...item, source: 'repo' })),
-    ...validateAudioAvailability(body, { game, audioNames: repositoryAudioNames(allPaths, game) })
-      .map((item) => ({ ...item, source: 'repo' })),
-    ...validateLinkTargets(body, { game, linkIndex: repositoryLinkIndex(allPaths) })
-      .map((item) => ({ ...item, source: 'repo' })),
+    ...validateIconAvailability(body, { game, iconNames: repositoryIconNames(allPaths, game) }).map((item) => ({
+      ...item,
+      source: 'repo',
+    })),
+    ...validateAudioAvailability(body, { game, audioNames: repositoryAudioNames(allPaths, game) }).map((item) => ({
+      ...item,
+      source: 'repo',
+    })),
+    ...validateLinkTargets(body, { game, linkIndex: repositoryLinkIndex(allPaths) }).map((item) => ({
+      ...item,
+      source: 'repo',
+    })),
     ...validateRepoConflicts({ path, repoPaths: allPaths }),
   ];
 }

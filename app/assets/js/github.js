@@ -48,9 +48,7 @@ export class GitHubClient {
   }
 
   async request(path, options = {}) {
-    const {
-      method = 'GET', body, accept = 'application/vnd.github+json', timeout = 20000,
-    } = options;
+    const { method = 'GET', body, accept = 'application/vnd.github+json', timeout = 20000 } = options;
     const headers = {
       Accept: accept,
       'X-GitHub-Api-Version': '2022-11-28',
@@ -83,7 +81,11 @@ export class GitHubClient {
     clearTimeout(timer);
     let data = null;
     if (text) {
-      try { data = JSON.parse(text); } catch { data = { message: text }; }
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { message: text };
+      }
     }
 
     if (!response.ok) {
@@ -94,7 +96,10 @@ export class GitHubClient {
       } else if (response.status === 404) {
         message = `${message}（404：仓库 / 文件不存在，或 token 没有该仓库的访问权限）`;
       } else if (response.status === 422 && Array.isArray(data?.errors)) {
-        message = `${message}：${data.errors.map((item) => item.message || item.code).filter(Boolean).join('；')}`;
+        message = `${message}：${data.errors
+          .map((item) => item.message || item.code)
+          .filter(Boolean)
+          .join('；')}`;
       }
       throw new GitHubError(message, response.status, data);
     }
@@ -114,7 +119,9 @@ export class GitHubClient {
 
   /** Latest published release of the editor repository (public, no token needed). */
   async getLatestRelease(owner, repo) {
-    const { data } = await this.request(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`);
+    const { data } = await this.request(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`,
+    );
     return {
       tag: data.tag_name || '',
       name: data.name || data.tag_name || '',
@@ -133,9 +140,7 @@ export class GitHubClient {
 
   async getRef(owner, repo, branch) {
     assertContentRepo(repo);
-    const { data } = await this.request(
-      `${repoBase(owner, repo)}/git/ref/heads/${encodeRef(branch)}`,
-    );
+    const { data } = await this.request(`${repoBase(owner, repo)}/git/ref/heads/${encodeRef(branch)}`);
     return data;
   }
 
@@ -186,9 +191,7 @@ export class GitHubClient {
 
   async getTree(owner, repo, ref) {
     assertContentRepo(repo);
-    const { data } = await this.request(
-      `${repoBase(owner, repo)}/git/trees/${encodeRef(ref)}?recursive=1`,
-    );
+    const { data } = await this.request(`${repoBase(owner, repo)}/git/trees/${encodeRef(ref)}?recursive=1`);
     return data.tree || [];
   }
 
@@ -203,10 +206,10 @@ export class GitHubClient {
 
   async updateRef(owner, repo, branch, sha) {
     assertContentRepo(repo);
-    const { data } = await this.request(
-      `${repoBase(owner, repo)}/git/refs/heads/${encodeRef(branch)}`,
-      { method: 'PATCH', body: { sha, force: false } },
-    );
+    const { data } = await this.request(`${repoBase(owner, repo)}/git/refs/heads/${encodeRef(branch)}`, {
+      method: 'PATCH',
+      body: { sha, force: false },
+    });
     return data;
   }
 
@@ -248,9 +251,7 @@ export class GitHubClient {
 
   async findOpenPullRequest(owner, repo, head) {
     assertContentRepo(repo);
-    const { data } = await this.request(
-      `${repoBase(owner, repo)}/pulls?state=open&head=${encodeURIComponent(head)}`,
-    );
+    const { data } = await this.request(`${repoBase(owner, repo)}/pulls?state=open&head=${encodeURIComponent(head)}`);
     return Array.isArray(data) ? data[0] : null;
   }
 
@@ -308,8 +309,16 @@ export class GitHubClient {
    */
   async submitPullRequest(options) {
     const {
-      owner, repo, baseBranch, branchName, files, commitMessage,
-      prTitle, prBody, draft = false, onProgress = () => {},
+      owner,
+      repo,
+      baseBranch,
+      branchName,
+      files,
+      commitMessage,
+      prTitle,
+      prBody,
+      draft = false,
+      onProgress = () => {},
     } = options;
 
     assertContentRepo(repo);
@@ -323,7 +332,7 @@ export class GitHubClient {
     const base = baseBranch || repoInfo.default_branch;
     onProgress(`目标仓库：${owner}/${repo}（默认分支 ${base}）`, 'ok');
 
-    let branch = branchName;
+    const branch = branchName;
     let headOwner = owner;
     let forkUsed = false;
 
@@ -342,11 +351,11 @@ export class GitHubClient {
     } catch (error) {
       if (!(error instanceof GitHubError)) throw error;
       if (error.status === 422 && /exists/i.test(error.message)) {
-        throw new GitHubError(
-          `分支名「${branch}」已存在，可能由其他贡献者创建。请更换分支名后重试。`,
-          422,
-          { code: 'BRANCH_EXISTS', branch, owner },
-        );
+        throw new GitHubError(`分支名「${branch}」已存在，可能由其他贡献者创建。请更换分支名后重试。`, 422, {
+          code: 'BRANCH_EXISTS',
+          branch,
+          owner,
+        });
       }
       if ([403, 404].includes(error.status)) {
         onProgress('没有上游仓库写权限，切换到 Fork 流程…', 'step');
@@ -430,8 +439,4 @@ export class GitHubClient {
       scopes: user.scopes,
     };
   }
-}
-
-export function repoSlug(settings, repoKey) {
-  return `${settings.owner}/${settings.repos[repoKey]}`;
 }

@@ -64,8 +64,6 @@ export function openModal(options) {
   wrapper.setAttribute('aria-modal', 'true');
   wrapper.setAttribute('aria-label', title);
 
-  const sizeClass = size === 'wide' ? 'is-wide' : size === 'narrow' ? 'is-narrow' : '';
-
   wrapper.innerHTML = `
     <div class="modal-head">
       <div class="modal-head-text">
@@ -192,8 +190,22 @@ export function confirmDialog({ title, message, confirmText = '确定', cancelTe
       body: `<p style="margin:0;font-size:13px;line-height:1.7;color:var(--text-soft)">${message}</p>`,
       size: 'narrow',
       footer: [
-        { label: cancelText, className: 'btn-ghost', onClick: () => { resolve(false); modal.close(); } },
-        { label: confirmText, className: danger ? 'btn-danger' : 'btn-primary', onClick: () => { resolve(true); modal.close(); } },
+        {
+          label: cancelText,
+          className: 'btn-ghost',
+          onClick: () => {
+            resolve(false);
+            modal.close();
+          },
+        },
+        {
+          label: confirmText,
+          className: danger ? 'btn-danger' : 'btn-primary',
+          onClick: () => {
+            resolve(true);
+            modal.close();
+          },
+        },
       ],
       onClose: () => resolve(false),
     });

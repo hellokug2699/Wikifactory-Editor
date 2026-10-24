@@ -1,21 +1,54 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  joinDocument, splitFrontmatter, setYamlField, frontmatterData,
-  validateContentPath, validateWikiSyntax, validateDocument, validateWithRepo,
-  validateFrontmatter, extractIconRefs, repositoryIconNames,
-  embedPageUrl, extractLinkRefs, repositoryLinkIndex, validateLinkTargets,
+  joinDocument,
+  splitFrontmatter,
+  setYamlField,
+  frontmatterData,
+  validateContentPath,
+  validateWikiSyntax,
+  validateDocument,
+  validateWithRepo,
+  validateFrontmatter,
+  extractIconRefs,
+  repositoryIconNames,
+  embedPageUrl,
+  extractLinkRefs,
+  repositoryLinkIndex,
+  validateLinkTargets,
+  pageIdsFromRepository,
 } from '../app/assets/js/validate.js';
 import { APP_VERSION } from '../app/assets/js/state.js';
 import { buildPreview } from '../app/assets/js/markdown.js';
 import { diffLines, diffStats, collapsedDiff } from '../app/assets/js/diff.js';
+import { deleteDraft, draftCount, getDraft, listDrafts, saveDraftRecord } from '../app/assets/js/drafts.js';
 import {
-  AUDIO_DIR, PAGE_TAGS, PAGE_TAG_VALUES, RESERVED_PATHS, audioFileName, audioNameProblem,
-  embedTarget, nameProblem, parseAudioMarker, parseEmbedMarker, rulesMatchConfig,
-  frontmatterTypeProblems, tagProblems,
+  AUDIO_DIR,
+  PAGE_TAGS,
+  PAGE_TAG_VALUES,
+  RESERVED_PATHS,
+  audioFileName,
+  audioNameProblem,
+  embedTarget,
+  nameProblem,
+  parseAudioMarker,
+  parseEmbedMarker,
+  rulesMatchConfig,
+  frontmatterTypeProblems,
+  tagProblems,
 } from '../app/assets/js/content-rules.js';
 
 let passed = 0;
+
+function memoryStorage() {
+  const map = new Map();
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
+  };
+}
+
 function test(name, fn) {
   try {
     fn();
@@ -115,7 +148,10 @@ test('frontmatter types follow the content gate', () => {
 
 test('icon refs are extracted outside code blocks', () => {
   const refs = extractIconRefs('[icon=iron-plate] [icon=screw;size=lg]\n```\n[icon=ignored]\n```');
-  assert.deepEqual(refs.map((ref) => ref.name), ['iron-plate', 'screw']);
+  assert.deepEqual(
+    refs.map((ref) => ref.name),
+    ['iron-plate', 'screw'],
+  );
 });
 
 test('icon availability matches games/<game>/assets/icons', () => {
@@ -168,7 +204,9 @@ test('shared rules are the single source for names and types', () => {
 
 test('shared rules detect config drift', () => {
   const reserved = RESERVED_PATHS.map((item) => ({ path: item, reason: '' }));
-  const thumbnails = { icon: { dir: 'assets/icons', extensions: ['svg', 'png', 'webp', 'jpg', 'jpeg', 'avif', 'gif'] } };
+  const thumbnails = {
+    icon: { dir: 'assets/icons', extensions: ['svg', 'png', 'webp', 'jpg', 'jpeg', 'avif', 'gif'] },
+  };
   assert.deepEqual(rulesMatchConfig({ reserved, thumbnails }), []);
   assert.ok(rulesMatchConfig({ reserved: reserved.slice(0, 2), thumbnails }).length > 0);
   assert.ok(rulesMatchConfig({ reserved, thumbnails: { icon: { dir: 'assets/images', extensions: [] } } }).length > 0);
@@ -229,7 +267,10 @@ test('embed targets are limited to supported https providers', () => {
 
   const issues = validateWikiSyntax('[[Embed/https://example.com/video]]');
   assert.ok(issues.some((item) => item.severity === 'error' && item.message.includes('不支持的嵌入来源')));
-  assert.equal(validateWikiSyntax('[[Embed/youtube/dQw4w9WgXcQ|演示]]').filter((item) => item.severity === 'error').length, 0);
+  assert.equal(
+    validateWikiSyntax('[[Embed/youtube/dQw4w9WgXcQ|演示]]').filter((item) => item.severity === 'error').length,
+    0,
+  );
 });
 
 test('audio availability matches the repository tree', () => {
@@ -261,10 +302,15 @@ test('internal link targets are checked against the file tree (warnings only)', 
   assert.equal(index.ids.has('Satisfactory/Buildings/MAM'), true);
   assert.equal(index.categoriesKey.has('satisfactory/buildings'), true);
   assert.deepEqual(
-    extractLinkRefs('[[Satisfactory/Buildings/MAM|MAM]] [[#章节]] [[Audio/a.ogg]] [[File/x.png]]').map((ref) => ref.target),
+    extractLinkRefs('[[Satisfactory/Buildings/MAM|MAM]] [[#章节]] [[Audio/a.ogg]] [[File/x.png]]').map(
+      (ref) => ref.target,
+    ),
     ['Satisfactory/Buildings/MAM'],
   );
-  assert.equal(validateLinkTargets('[[Satisfactory/Buildings/MAM]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
+  assert.equal(
+    validateLinkTargets('[[Satisfactory/Buildings/MAM]]', { game: 'Satisfactory', linkIndex: index }).length,
+    0,
+  );
   assert.equal(validateLinkTargets('[[Buildings]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
   assert.equal(validateLinkTargets('[[Iron-Plate]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
   assert.equal(validateLinkTargets('[[Getting-Started]]', { game: 'Satisfactory', linkIndex: index }).length, 0);
@@ -304,6 +350,48 @@ test('line diff reports additions, removals and collapsed context', () => {
   assert.ok(rows.some((row) => row.type === 'del' && row.text === 'b'));
   assert.deepEqual(diffStats(diffLines('same\n', 'same\n')), { added: 0, removed: 0 });
   assert.equal(collapsedDiff(diffLines('same\n', 'same\n')).length, 0);
+});
+
+test('page ids for `[[` completion come from the file tree', () => {
+  assert.deepEqual(
+    pageIdsFromRepository([
+      'games/Satisfactory/Buildings/MAM.md',
+      'games/Satisfactory/Items/Iron-Plate.mdx',
+      'games/Satisfactory/assets/icons/iron.svg',
+      'README.md',
+    ]),
+    ['Satisfactory/Buildings/MAM', 'Satisfactory/Items/Iron-Plate'],
+  );
+  assert.deepEqual(pageIdsFromRepository(null), []);
+});
+
+test('drafts are stored per path with newest first', () => {
+  const storage = memoryStorage();
+  assert.deepEqual(listDrafts(storage), []);
+  saveDraftRecord({ path: 'games/A/C/One.md', title: 'One', body: 'hello', savedAt: 1000 }, storage);
+  saveDraftRecord({ path: 'games/A/C/Two.md', title: 'Two', body: 'world', savedAt: 2000, loadedBody: 'old' }, storage);
+  const drafts = listDrafts(storage);
+  assert.equal(drafts.length, 2);
+  assert.equal(drafts[0].path, 'games/A/C/Two.md');
+  assert.equal(drafts[0].loadedBody, 'old');
+  assert.equal(getDraft('games/A/C/One.md', storage).body, 'hello');
+  assert.equal(getDraft('games/A/C/Missing.md', storage), null);
+  deleteDraft('games/A/C/One.md', storage);
+  assert.equal(draftCount(storage), 1);
+});
+
+test('draft store keeps at most 30 records', () => {
+  const storage = memoryStorage();
+  for (let index = 0; index < 35; index += 1) {
+    saveDraftRecord({ path: `games/A/C/Page-${index}.md`, body: String(index), savedAt: index }, storage);
+  }
+  const drafts = listDrafts(storage);
+  assert.equal(drafts.length, 30);
+  assert.equal(drafts[0].path, 'games/A/C/Page-34.md');
+  assert.equal(
+    drafts.some((draft) => draft.path === 'games/A/C/Page-0.md'),
+    false,
+  );
 });
 
 console.log(`\n${passed} tests passed.`);

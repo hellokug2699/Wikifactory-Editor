@@ -102,11 +102,7 @@ async function deriveKey() {
 async function saveWithWebCrypto(payload) {
   const key = await deriveKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoder.encode(JSON.stringify(payload)),
-  );
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(JSON.stringify(payload)));
   const record = {
     v: 1,
     kind: 'webcrypto',

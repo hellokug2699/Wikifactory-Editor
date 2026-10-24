@@ -3,7 +3,7 @@
 const STORAGE_KEY = 'wikifactory-editor:v2';
 
 /** Kept in sync with package.json by scripts/selftest.mjs. */
-export const APP_VERSION = '1.2.1';
+export const APP_VERSION = '1.2.2';
 
 /** The editor is deliberately hard-wired to the public Content repository. */
 export const CONTENT_OWNER = 'hellokug2699';
@@ -143,10 +143,6 @@ export function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-export function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 export function formatTime(ts) {
   if (!ts) return '';
   return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -160,13 +156,12 @@ export function formatBytes(bytes) {
 }
 
 export function basename(path) {
-  return String(path || '').split('/').filter(Boolean).pop() || '';
-}
-
-export function dirname(path) {
-  const parts = String(path || '').split('/').filter(Boolean);
-  parts.pop();
-  return parts.join('/');
+  return (
+    String(path || '')
+      .split('/')
+      .filter(Boolean)
+      .pop() || ''
+  );
 }
 
 export function stripExt(path) {
@@ -198,7 +193,7 @@ export function downloadText(filename, text, mime = 'text/plain;charset=utf-8') 
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-export function base64FromBytes(bytes) {
+function base64FromBytes(bytes) {
   let binary = '';
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {

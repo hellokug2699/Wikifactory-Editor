@@ -5,8 +5,12 @@ import assert from 'node:assert/strict';
 const memory = new Map();
 globalThis.localStorage = {
   getItem: (key) => (memory.has(key) ? memory.get(key) : null),
-  setItem: (key, value) => { memory.set(key, String(value)); },
-  removeItem: (key) => { memory.delete(key); },
+  setItem: (key, value) => {
+    memory.set(key, String(value));
+  },
+  removeItem: (key) => {
+    memory.delete(key);
+  },
 };
 Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
@@ -82,9 +86,16 @@ await check('clear removes the encrypted record', async () => {
 
 let bridgeBlob = '';
 globalThis.AndroidEditor = {
-  secureSet(value) { bridgeBlob = value; return 'true'; },
-  secureGet() { return bridgeBlob; },
-  secureClear() { bridgeBlob = ''; },
+  secureSet(value) {
+    bridgeBlob = value;
+    return 'true';
+  },
+  secureGet() {
+    return bridgeBlob;
+  },
+  secureClear() {
+    bridgeBlob = '';
+  },
 };
 await check('android keystore bridge is detected', () => assert.equal(tokenStorageKind(), 'android-keystore'));
 await check('android bridge roundtrip', async () => {

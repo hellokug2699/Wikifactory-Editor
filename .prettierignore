@@ -1,0 +1,10 @@
+app/assets/vendor
+dist
+desktop/bin
+android
+node_modules
+package-lock.json
+app/assets/vendor/codemirror.bundle.js
+docs
+# Shared rules are vendored byte-for-byte into Content / Core; never reformat.
+app/assets/js/content-rules.js

@@ -4,7 +4,9 @@ const MAX_CELLS = 1_500_000;
 const CONTEXT_LINES = 3;
 
 function splitLines(text) {
-  return String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
+  return String(text ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n');
 }
 
 function coarseDiff(oldLines, newLines, prefix, suffix) {
@@ -70,9 +72,8 @@ export function diffLines(oldText, newText) {
   const dp = new Uint32Array((a.length + 1) * cols);
   for (let i = a.length - 1; i >= 0; i -= 1) {
     for (let j = b.length - 1; j >= 0; j -= 1) {
-      dp[i * cols + j] = a[i] === b[j]
-        ? dp[(i + 1) * cols + j + 1] + 1
-        : Math.max(dp[(i + 1) * cols + j], dp[i * cols + j + 1]);
+      dp[i * cols + j] =
+        a[i] === b[j] ? dp[(i + 1) * cols + j + 1] + 1 : Math.max(dp[(i + 1) * cols + j], dp[i * cols + j + 1]);
     }
   }
 
@@ -93,8 +94,14 @@ export function diffLines(oldText, newText) {
       j += 1;
     }
   }
-  while (i < a.length) { ops.push({ type: 'del', text: a[i] }); i += 1; }
-  while (j < b.length) { ops.push({ type: 'add', text: b[j] }); j += 1; }
+  while (i < a.length) {
+    ops.push({ type: 'del', text: a[i] });
+    i += 1;
+  }
+  while (j < b.length) {
+    ops.push({ type: 'add', text: b[j] });
+    j += 1;
+  }
   for (const line of suffix) ops.push({ type: 'equal', text: line });
   return numberOps(ops);
 }

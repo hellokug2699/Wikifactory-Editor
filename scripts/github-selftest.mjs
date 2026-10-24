@@ -41,12 +41,15 @@ function createMock({ writable, existingBranch = '' }) {
     const body = options.body ? JSON.parse(options.body) : null;
 
     if (path === '/user') return response(200, { login: 'contributor' }, { 'x-oauth-scopes': 'public_repo' });
-    if (path === '/repos/o/Wikifactory-Content') return response(200, { default_branch: 'main', full_name: 'o/Wikifactory-Content' });
+    if (path === '/repos/o/Wikifactory-Content')
+      return response(200, { default_branch: 'main', full_name: 'o/Wikifactory-Content' });
     if (path === '/repos/contributor/Wikifactory-Content') {
-      if (!state.refs.has('contributor/Wikifactory-Content@main')) state.refs.set('contributor/Wikifactory-Content@main', 'base-sha');
+      if (!state.refs.has('contributor/Wikifactory-Content@main'))
+        state.refs.set('contributor/Wikifactory-Content@main', 'base-sha');
       return response(200, { default_branch: 'main', full_name: 'contributor/Wikifactory-Content' });
     }
-    if (path === '/repos/o/Wikifactory-Content/forks' && method === 'POST') return response(202, { full_name: 'contributor/Wikifactory-Content' });
+    if (path === '/repos/o/Wikifactory-Content/forks' && method === 'POST')
+      return response(202, { full_name: 'contributor/Wikifactory-Content' });
 
     const refMatch = /^\/repos\/([^/]+)\/([^/]+)\/git\/ref\/heads\/(.+)$/.exec(path);
     if (refMatch && method === 'GET') {

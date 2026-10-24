@@ -13,7 +13,9 @@ fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 fs.cpSync(appDir, outDir, { recursive: true });
 
-fs.writeFileSync(path.join(outDir, 'serve.mjs'), `import http from 'node:http';
+fs.writeFileSync(
+  path.join(outDir, 'serve.mjs'),
+  `import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 const root = process.cwd();
@@ -27,7 +29,8 @@ http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
 }).listen(port, () => console.log('Wikifactory Editor: http://localhost:' + port));
-`);
+`,
+);
 
 fs.rmSync(zipPath, { force: true });
 try {

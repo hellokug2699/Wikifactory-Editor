@@ -2,6 +2,15 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 2–3 个版本的摘要。
 
+## v1.1.9 功能更新
+
+- **页面分类（tags）统一模板**：frontmatter 的 `tags` 改为由编辑器内置模板统一分发，首版包含攻略 / 建筑 / 物品 / 制造 / 研究 / 资源 / 机制 / 探索 / 剧情 / 更新。编辑器把原来的文本框换成分类 chip，只能选择模板内的值；未知分类会显示为可移除的警告 chip，并在本地预检与 Content/Core 门禁中被拒绝。
+- **新增分类走 issue**：表单内提供「在编辑器仓库提交 issue」入口，附带 [新增页面分类模板](.github/ISSUE_TEMPLATE/new-page-tag.yml)。维护者更新模板后，通过 `npm run rules:sync` 与 `npm run tags:sync` 同步到 Content / Core。
+- **Core 分类展示适配**：Content 仓库只保存页面文件与 tag 值；分类的展示名称、色调（accent / success / warning / danger / neutral）与说明放在 Core 的 `config/page-tags.json`（由编辑器模板生成，含规则哈希）与 `src/config/page-tags.ts`。页面元信息按模板渲染分类 badge，未知值回退为中性样式。
+- **共享规则 1.1.0**：`content-rules.js` 新增 `PAGE_TAGS` / `tagProblems()`，编辑器预检与 Content、Core 门禁使用同一份分类校验；规则哈希继续由两侧 CI 校验。
+- **Release 标题约定**：Release 页面标题统一为 `Wikifactory Editor vX.Y.Z`。
+- 版本号：**1.1.9**（Android versionCode 11）。
+
 ## v1.2.0 功能更新
 
 - **音频插入（仅 OGG）**：工具栏新增「音频」。语法为 `[[Audio/名称.ogg|标题]]`，文件放在 `games/<游戏>/assets/audio/`，标题可省略。对话框只接受 `.ogg`，可随 PR 上传；编辑器预检、Content/Core 门禁都会校验扩展名与文件是否存在。预览先显示占位块，点击后才加载播放器。

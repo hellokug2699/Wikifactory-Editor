@@ -6,6 +6,16 @@
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
 
+## v1.2.2 质量更新
+
+- **编辑器基础补齐**：接入 CodeMirror 6 的搜索（`Ctrl/Cmd+F`、`Ctrl/Cmd+H` 查找替换、匹配高亮）、自动补全（`[[` 补全站内页面，`[icon=` 补全当前游戏图标名，frontmatter 的 `tags` 补全内置分类）、自动闭合括号与选中内容高亮。补全数据直接复用仓库文件树、`PAGE_TAG_VALUES` 与图标索引，不额外发请求。
+- **新增快捷键**：`Ctrl/Cmd+I` 斜体、`Ctrl/Cmd+K` 插入 Markdown 链接、`Ctrl/Cmd+Shift+K` 插入站内链接并自动弹出补全。
+- **修复数据丢失 + 多草稿**：加载 / 浏览切换 / 新建页面前会检查未保存修改，可选择「保存草稿并继续 / 放弃修改 / 取消」。草稿改为按仓库路径分别保存在本机（最多 30 份），侧栏新增「最近草稿」入口，可恢复或删除任意一份，切换页面不再互相覆盖。
+- **粘贴 / 拖拽图片**：直接在正文粘贴或拖入图片，图片会加入「待上传资源」并插入 `[[File/名称|md]]`；超过 1 MB 的位图会用 canvas 缩放到长边 1600px 以内并转为 WebP，避免把几 MB 的 PNG 提进仓库。
+- **行内诊断**：校验结果通过 `@codemirror/lint` 映射为波浪线与行号栏标记，悬停可看具体文案；错误 / 警告与「检查」弹窗保持一致，点击问题跳行仍然可用。
+- **工程化底线**：新增 ESLint（flat config）+ Prettier 与 `npm run lint`；新增 `.github/workflows/ci.yml`（push / PR 运行 `npm ci && npm run lint && npm test`）。移除遗留的 `editor.js`、`repoSlug` 与未使用的工具函数，并清理不再引用的 CSS 变量。
+- 版本号：**1.2.2**（Android versionCode 14）。
+
 ## v1.2.1 质量更新
 
 - **音频 / 嵌入的来源说明与降级提示**：预览中的嵌入块会显示「来源：YouTube · youtube/ID」以及「若无法播放，请点此打开原链接」；音频加载失败时会明确说明可能的原因（文件不存在 / 浏览器不支持 OGG），并提供「打开原文件」入口，而不是只显示一个空白的播放器。
@@ -25,25 +35,16 @@
 - **共享规则 1.2.0**：`content-rules.js` 新增音频 / 嵌入解析与校验；Core 渲染层复用同一份逐字节副本（`src/lib/content-rules.js`）。
 - 版本号：**1.2.0**（Android versionCode 12）。
 
-## v1.1.9 功能更新
+> 更早的版本记录（v1.1.1 – v1.1.9）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
 
-- **页面分类（tags）统一模板**：frontmatter 的 `tags` 改为由编辑器内置模板统一分发，首版包含攻略 / 建筑 / 物品 / 制造 / 研究 / 资源 / 机制 / 探索 / 剧情 / 更新。编辑器把原来的文本框换成分类 chip，只能选择模板内的值；未知分类会显示为可移除的警告 chip，并在本地预检与 Content/Core 门禁中被拒绝。
-- **新增分类走 issue**：表单内提供「在编辑器仓库提交 issue」入口，附带 [新增页面分类模板](.github/ISSUE_TEMPLATE/new-page-tag.yml)。维护者更新模板后，通过 `npm run rules:sync` 与 `npm run tags:sync` 同步到 Content / Core。
-- **Core 分类展示适配**：Content 仓库只保存页面文件与 tag 值；分类的展示名称、色调（accent / success / warning / danger / neutral）与说明放在 Core 的 `config/page-tags.json`（由编辑器模板生成，含规则哈希）与 `src/config/page-tags.ts`。页面元信息按模板渲染分类 badge，未知值回退为中性样式。
-- **共享规则 1.1.0**：`content-rules.js` 新增 `PAGE_TAGS` / `tagProblems()`，编辑器预检与 Content、Core 门禁使用同一份分类校验；规则哈希继续由两侧 CI 校验。
-- **Release 标题约定**：Release 页面标题统一为 `Wikifactory Editor vX.Y.Z`。
-- 版本号：**1.1.9**（Android versionCode 11）。
-
-> 更早的版本记录（v1.1.1 – v1.1.8）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
-
-## 下载（v1.2.1）
+## 下载（v1.2.2）
 
 | 平台 | 产物 | 说明 |
 | --- | --- | --- |
-| Windows | [Wikifactory-Editor-v1.2.1-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
-| Android（签名） | [Wikifactory-Editor-v1.2.1-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
-| Android（试用） | [Wikifactory-Editor-v1.2.1-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-android.apk) | debug 签名，仅用于试用；与签名版的证书不同，不能互相覆盖 |
-| 网页版 | [Wikifactory-Editor-v1.2.1-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.1/Wikifactory-Editor-v1.2.1-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
+| Windows | [Wikifactory-Editor-v1.2.2-windows-x64.exe](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-windows-x64.exe) | 免安装单文件，资源已内嵌，约 3.3 MB；Windows 10/11 需要 WebView2 Runtime（通常已内置） |
+| Android（签名） | [Wikifactory-Editor-v1.2.2-android-release.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-android-release.apk) | 由仓库 secrets 中的 release keystore 在 CI 签名，可覆盖升级；发布 Release 后由工作流自动附加 |
+| Android（试用） | [Wikifactory-Editor-v1.2.2-android.apk](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-android.apk) | debug 签名，仅用于试用；与签名版的证书不同，不能互相覆盖 |
+| 网页版 | [Wikifactory-Editor-v1.2.2-web.zip](https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v1.2.2/Wikifactory-Editor-v1.2.2-web.zip) | 解压后运行 `node serve.mjs`，打开 `http://localhost:8090` |
 
 也可以从仓库的 [`dist/`](dist/) 目录下载同名文件。
 
@@ -64,11 +65,11 @@ export ANDROID_KEYSTORE_PASSWORD='***'
 export ANDROID_KEY_ALIAS=wikifactory
 export ANDROID_KEY_PASSWORD='***'
 
-# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.1-android-release.apk）
+# 3. 构建 release APK 并签名（输出 dist/Wikifactory-Editor-v1.2.2-android-release.apk）
 npm run build:android:release
 
 # 也可以只重签已有 APK（不重新构建）
-node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.1-android.apk
+node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.2-android.apk
 ```
 
 脚本会调用 `apksigner` 校验签名并打印签名者证书 SHA-256 和 APK SHA-256。请妥善保管 keystore：同一个 keystore 才能覆盖升级已安装的应用；丢失后只能卸载重装。
@@ -98,10 +99,9 @@ node scripts/android-release.mjs --apk dist/Wikifactory-Editor-v1.2.1-android.ap
 见 [dist/SHA256SUMS.txt](dist/SHA256SUMS.txt)。
 
 ```
-e7e49abc817f11cd2a29b1e737d18237f74cf501fe4692c1388a6a2c73fc4094  Wikifactory-Editor-v1.2.1-android-release.apk
-020ceeed3c33c37a0f4f4b27cb9a6ac852de6717a030276e2922e0f9103117b0  Wikifactory-Editor-v1.2.1-android.apk
-6649ed6d209f3f1e3d590e9567496624065d67c53c6138af8101dd300ac49909  Wikifactory-Editor-v1.2.1-web.zip
-7943b165221bdfc4ea16cc14ce941bbe8eef4e6c87205151310712aeb7639267  Wikifactory-Editor-v1.2.1-windows-x64.exe
+28c7093960c5e7c7f33922e5d17f7f9866a26fb6f75babcf9a271d1c175bd188  Wikifactory-Editor-v1.2.2-android.apk
+e1dbcef723be6470934f35a8e6083e00edb4619169a3032eae9224cc0a4b911a  Wikifactory-Editor-v1.2.2-web.zip
+fdca96ba7a908394cfe4f06c8d9196adc276fd6f1ea5dfe9938ec891fdb52f66  Wikifactory-Editor-v1.2.2-windows-x64.exe
 ```
 
 签名版 APK 由 CI 在发布 Release 后附加（其 SHA-256 会同步更新到 `dist/SHA256SUMS.txt`）；签名证书 SHA-256 固定为 `6e2bff4309e91943934609e5229e38f14e4798d4034e3f4d7f1f99f9a253b435`，后续版本可覆盖升级。
@@ -122,6 +122,9 @@ e7e49abc817f11cd2a29b1e737d18237f74cf501fe4692c1388a6a2c73fc4094  Wikifactory-Ed
 - 「元数据 YAML」标签使用 **YAML 语法高亮**。
 - 围栏代码块按语言高亮：JS/TS、JSON、CSS、HTML、YAML。
 - 配色同时适配亮色 / 暗色主题。
+- **搜索与替换**：`Ctrl/Cmd+F` 打开查找面板，`Ctrl/Cmd+H` 直接查找替换；支持大小写、正则、整词匹配，匹配处与选中内容会高亮。
+- **自动补全**：输入 `[[` 补全仓库中的页面 id，`[icon=` 补全当前游戏的图标名，frontmatter 的 `tags` 补全内置分类；括号自动闭合。
+- **行内诊断**：路径 / frontmatter / Wiki 语法 / 图标 / 音频 / 站内链接问题以波浪线 + 行号栏标记显示，悬停可看说明。
 
 ![语法高亮](docs/screenshots/syntax-highlighting.png)
 
@@ -137,6 +140,8 @@ e7e49abc817f11cd2a29b1e737d18237f74cf501fe4692c1388a6a2c73fc4094  Wikifactory-Ed
 - 图片插入：任意图片格式；可选 Wiki `[[File/…]]`、标准 Markdown `![]()` 或自定义模板；可随 PR 上传到 `games/<游戏>/assets/images/`。
 - 图标插入：`[icon=…]` 从 `games/<游戏>/assets/icons/` 读取；对话框会检查图标文件是否存在，并可把新图标随 PR 上传到同一目录。
 - 横幅、图标、表格颜色、站内链接都有对应插入对话框。
+- 粘贴或拖入图片即可加入「待上传资源」并插入 `[[File/名称|md]]`；超过 1 MB 的位图会缩放到长边 1600px 以内并转为 WebP。
+- **多草稿**：草稿按仓库路径分别保存（最多 30 份），侧栏「最近草稿」可恢复或删除任意一份；加载 / 浏览切换 / 新建前会提示保存或放弃未保存的修改。
 - 本地草稿自动保存；`Ctrl+S` 立即保存；`Ctrl+Z` / `Ctrl+Shift+Z` 撤销重做；支持导出当前文件。
 
 ### 按需预览（非实时）
@@ -223,11 +228,17 @@ e7e49abc817f11cd2a29b1e737d18237f74cf501fe4692c1388a6a2c73fc4094  Wikifactory-Ed
 | 快捷键 | 功能 |
 | --- | --- |
 | `Ctrl/Cmd + S` | 保存本地草稿 |
+| `Ctrl/Cmd + F` | 查找（面板内可切换大小写 / 正则 / 整词） |
+| `Ctrl/Cmd + H` | 查找并替换 |
+| `Ctrl/Cmd + I` | 斜体（插入 `**`，光标居中） |
+| `Ctrl/Cmd + K` | 插入 Markdown 链接 |
+| `Ctrl/Cmd + Shift + K` | 插入站内链接 `[[…]]` 并弹出页面补全 |
+| `Ctrl/Cmd + Space` | 手动触发补全 |
 | `Ctrl/Cmd + Z` | 撤销 |
 | `Ctrl/Cmd + Shift + Z` 或 `Ctrl + Y` | 重做 |
 | `Ctrl/Cmd + B` | 粗体（插入 `****`，光标居中） |
 | `Ctrl/Cmd + Enter` | 生成预览快照 |
-| `Esc` | 关闭预览 / 弹窗 / 移动端侧栏 |
+| `Esc` | 关闭预览 / 弹窗 / 补全 / 查找面板 / 移动端侧栏 |
 
 ## 支持的 Wiki 语法
 
@@ -294,8 +305,9 @@ dist/                交付产物（exe / apk / web zip）
 ```bash
 npm install
 npm run build:vendor    # 重新打包 CodeMirror 6（依赖变更后执行）
-npm test                # 内容规则 / frontmatter / Wiki 语法 / GitHub PR mock
-npm run build:web       # dist/Wikifactory-Editor-v1.2.1-web.zip
+npm run lint            # ESLint + Prettier 检查（CI 同款）
+npm test                # 内容规则 / frontmatter / Wiki 语法 / 草稿 / GitHub PR mock
+npm run build:web       # dist/Wikifactory-Editor-v1.2.2-web.zip
 npm run build:desktop   # 下载 Neutralinojs 6.10.0 并生成 Windows 单文件 exe
 npm run build:android   # 生成 debug-signed APK（需 Android SDK）
 
@@ -314,6 +326,8 @@ npm run build:android:release
 
 桌面构建会在 `desktop/bin/` 缓存 Neutralinojs 二进制（已忽略），并通过 `neu build --release --embed-resources` 把全部资源嵌入 exe。
 
+代码风格由 [eslint.config.js](eslint.config.js)（flat config）与 [.prettierrc.json](.prettierrc.json) 约束；`npm run lint:fix` 可自动修复。`content-rules.js` 与 Content / Core 逐字节同源，已加入 Prettier 忽略列表，任何格式化都会破坏哈希校验。`.github/workflows/ci.yml` 在 push 与 PR 上运行 `npm ci && npm run lint && npm test`。
+
 Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.net` 加载本地静态文件，因此 `localStorage`、`fetch` 与 CORS 行为与普通浏览器一致；网络请求只发往 `api.github.com`（GitHub API）与 YouTube / Vimeo 的 oEmbed 标题接口。
 
 ## 已知限制
@@ -322,6 +336,8 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 - 音频同样按需加载；嵌入播放器需要网络，且实际播放取决于提供商是否允许 iframe 嵌入。预览中已提供来源标识与原链接降级入口，但无法检测 iframe 内部的播放失败。
 - 嵌入标题通过 YouTube / Vimeo 的 oEmbed 读取；哔哩哔哩不提供可用的跨域标题接口，标题需手动填写。
 - 离线缓存只覆盖文件树（图标 / 音频 / 站内链接存在性）；没有网络时无法读取文件正文或提交 PR，请先保存草稿。
+- `[[` 页面补全、`[icon=` 图标补全与图标存在性诊断都依赖仓库文件树；完全离线且没有缓存时只会退回本地语法检查（路径、frontmatter、Wiki 语法）。
+- 多草稿只保存正文与 frontmatter，不包含「待上传资源」；切换草稿或页面后需要重新选择图片 / 音频。
 - 站内链接校验基于文件路径与文件名，无法读取页面 frontmatter 标题或 Wikifactory-Alias 别名，因此只给警告、不阻断。
 - Android Release 中的 debug APK 仅用于试用；长期分发请使用 CI 附加的签名版 APK（见「Android 签名」）。没有接入 Play Store / 自动更新。
 - Windows exe 依赖 WebView2 Runtime（Windows 10/11 通常自带）。

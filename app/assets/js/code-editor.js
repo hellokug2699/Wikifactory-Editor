@@ -9,19 +9,60 @@
  */
 
 import {
-  EditorState, EditorView, Compartment, RangeSetBuilder,
-  keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars,
-  drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine,
-  MatchDecorator, Decoration, ViewPlugin,
-  history, defaultKeymap, historyKeymap, indentWithTab, undo, redo,
-  markdown, markdownLanguage, yaml, javascript, json, css, html,
-  syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput, tags,
+  EditorState,
+  EditorView,
+  Compartment,
+  RangeSetBuilder,
+  keymap,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+  MatchDecorator,
+  Decoration,
+  ViewPlugin,
+  history,
+  defaultKeymap,
+  historyKeymap,
+  indentWithTab,
+  undo,
+  redo,
+  search,
+  searchKeymap,
+  highlightSelectionMatches,
+  openSearchPanel,
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  startCompletion,
+  setDiagnostics,
+  lintGutter,
+  markdown,
+  markdownLanguage,
+  yaml,
+  javascript,
+  json,
+  css,
+  html,
+  syntaxHighlighting,
+  HighlightStyle,
+  bracketMatching,
+  indentOnInput,
+  tags,
 } from '../vendor/codemirror.bundle.js';
 
 export const CURSOR = '\u0000WFCURSOR\u0000';
 
 function codeLanguage(info) {
-  const name = String(info || '').trim().toLowerCase().split(/\s+/)[0];
+  const name = String(info || '')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)[0];
   if (['js', 'jsx', 'ts', 'tsx', 'javascript', 'typescript'].includes(name)) {
     return javascript({ typescript: true, jsx: true }).language;
   }
@@ -34,7 +75,11 @@ function codeLanguage(info) {
 
 const highlightStyle = HighlightStyle.define([
   { tag: tags.heading1, color: 'var(--cm-heading)', fontWeight: '750' },
-  { tag: [tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6], color: 'var(--cm-heading)', fontWeight: '680' },
+  {
+    tag: [tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6],
+    color: 'var(--cm-heading)',
+    fontWeight: '680',
+  },
   { tag: tags.strong, color: 'var(--text)', fontWeight: '700' },
   { tag: tags.emphasis, fontStyle: 'italic' },
   { tag: tags.strikethrough, textDecoration: 'line-through', color: 'var(--text-faint)' },
@@ -54,74 +99,99 @@ const highlightStyle = HighlightStyle.define([
   { tag: tags.quote, color: 'var(--text-soft)', fontStyle: 'italic' },
 ]);
 
-const editorTheme = EditorView.theme({
-  '&': {
-    height: '100%',
-    backgroundColor: 'transparent',
-    color: 'var(--text)',
-    outline: 'none',
+const editorTheme = EditorView.theme(
+  {
+    '&': {
+      height: '100%',
+      backgroundColor: 'transparent',
+      color: 'var(--text)',
+      outline: 'none',
+    },
+    '&.cm-focused': { outline: 'none' },
+    '.cm-scroller': {
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--editor-font-size, 14.5px)',
+      lineHeight: '1.8',
+      overflow: 'auto',
+    },
+    '.cm-content': {
+      padding: '22px clamp(18px, 4vw, 46px) 96px',
+      caretColor: 'var(--accent)',
+    },
+    '.cm-line': { padding: '0' },
+    '.cm-gutters': {
+      backgroundColor: 'var(--editor-bg)',
+      color: 'var(--text-faint)',
+      borderRight: '1px solid var(--border)',
+      paddingLeft: '6px',
+      fontSize: '11px',
+      userSelect: 'none',
+    },
+    '.cm-activeLine': { backgroundColor: 'rgba(79, 124, 255, .055)' },
+    '.cm-activeLineGutter': { backgroundColor: 'rgba(79, 124, 255, .08)', color: 'var(--text-soft)' },
+    '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'rgba(79, 124, 255, .22) !important' },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
+    '.cm-matchingBracket': { backgroundColor: 'rgba(79, 124, 255, .18)', outline: '1px solid var(--accent)' },
+    '.cm-wf-image': { color: 'var(--cm-wiki-image)', fontWeight: '650' },
+    '.cm-wf-link': {
+      color: 'var(--cm-wiki-link)',
+      textDecoration: 'underline',
+      textDecorationColor: 'rgba(79, 124, 255, .45)',
+    },
+    '.cm-wf-icon': { color: 'var(--cm-wiki-icon)', fontWeight: '600' },
+    '.cm-wf-cell-color': { color: 'var(--cm-wiki-color)', fontWeight: '600' },
+    '.cm-wf-callout': {
+      backgroundColor: 'var(--cm-callout-bg)',
+      boxShadow: 'inset 3px 0 0 var(--cm-callout-border)',
+    },
+    '.cm-wf-table': { backgroundColor: 'rgba(79, 124, 255, .045)' },
+    '.cm-searchMatch': { backgroundColor: 'rgba(249, 168, 37, .28)', outline: '1px solid rgba(249, 168, 37, .6)' },
+    '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'rgba(249, 168, 37, .55)' },
+    '.cm-selectionMatch': { backgroundColor: 'rgba(79, 124, 255, .14)' },
+    '.cm-tooltip-autocomplete': {
+      border: '1px solid var(--border)',
+      borderRadius: '8px',
+      backgroundColor: 'var(--surface-2)',
+    },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+      backgroundColor: 'var(--accent-soft)',
+      color: 'var(--text)',
+    },
+    '.cm-panels': { backgroundColor: 'var(--surface-2)', color: 'var(--text)' },
+    '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
+    '.cm-panel.cm-search input, .cm-panel.cm-search button': {
+      backgroundColor: 'var(--surface)',
+      color: 'var(--text)',
+      border: '1px solid var(--border)',
+      borderRadius: '6px',
+    },
+    '.cm-lint-marker-error': { content: 'none' },
   },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 'var(--editor-font-size, 14.5px)',
-    lineHeight: '1.8',
-    overflow: 'auto',
-  },
-  '.cm-content': {
-    padding: '22px clamp(18px, 4vw, 46px) 96px',
-    caretColor: 'var(--accent)',
-  },
-  '.cm-line': { padding: '0' },
-  '.cm-gutters': {
-    backgroundColor: 'var(--editor-bg)',
-    color: 'var(--text-faint)',
-    borderRight: '1px solid var(--border)',
-    paddingLeft: '6px',
-    fontSize: '11px',
-    userSelect: 'none',
-  },
-  '.cm-activeLine': { backgroundColor: 'rgba(79, 124, 255, .055)' },
-  '.cm-activeLineGutter': { backgroundColor: 'rgba(79, 124, 255, .08)', color: 'var(--text-soft)' },
-  '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'rgba(79, 124, 255, .22) !important' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
-  '.cm-matchingBracket': { backgroundColor: 'rgba(79, 124, 255, .18)', outline: '1px solid var(--accent)' },
-  '.cm-wf-image': { color: 'var(--cm-wiki-image)', fontWeight: '650' },
-  '.cm-wf-link': { color: 'var(--cm-wiki-link)', textDecoration: 'underline', textDecorationColor: 'rgba(79, 124, 255, .45)' },
-  '.cm-wf-icon': { color: 'var(--cm-wiki-icon)', fontWeight: '600' },
-  '.cm-wf-cell-color': { color: 'var(--cm-wiki-color)', fontWeight: '600' },
-  '.cm-wf-callout': {
-    backgroundColor: 'var(--cm-callout-bg)',
-    boxShadow: 'inset 3px 0 0 var(--cm-callout-border)',
-  },
-  '.cm-wf-table': { backgroundColor: 'rgba(79, 124, 255, .045)' },
-}, { dark: false });
+  { dark: false },
+);
 
 function matcher(regexp, className) {
   const decorator = new MatchDecorator({
     regexp,
     decoration: Decoration.mark({ class: className }),
   });
-  return ViewPlugin.fromClass(class {
-    constructor(view) {
-      this.decorations = decorator.createDeco(view);
-    }
-    update(update) {
-      this.decorations = decorator.updateDeco(update, this.decorations);
-    }
-  }, {
-    decorations: (plugin) => plugin.decorations,
-  });
+  return ViewPlugin.fromClass(
+    class {
+      constructor(view) {
+        this.decorations = decorator.createDeco(view);
+      }
+      update(update) {
+        this.decorations = decorator.updateDeco(update, this.decorations);
+      }
+    },
+    {
+      decorations: (plugin) => plugin.decorations,
+    },
+  );
 }
 
-const wikiImageHighlighter = matcher(
-  /\[\[(?:File|Image|文件)\s*[/\\:：][^\]\n]*\]\]/gi,
-  'cm-wf-image',
-);
-const wikiLinkHighlighter = matcher(
-  /\[\[(?!\s*(?:File|Image|文件)\s*[/\\:：])[^\]\n]+\]\]/gi,
-  'cm-wf-link',
-);
+const wikiImageHighlighter = matcher(/\[\[(?:File|Image|文件)\s*[/\\:：][^\]\n]*\]\]/gi, 'cm-wf-image');
+const wikiLinkHighlighter = matcher(/\[\[(?!\s*(?:File|Image|文件)\s*[/\\:：])[^\]\n]+\]\]/gi, 'cm-wf-link');
 const wikiIconHighlighter = matcher(/\[icon=[^\]\n]+\]/gi, 'cm-wf-icon');
 const cellColorHighlighter = matcher(/\[(?:bg|fg)=[^\]\n]+\]/gi, 'cm-wf-cell-color');
 
@@ -143,18 +213,21 @@ function lineDecoration(view) {
   return builder.finish();
 }
 
-const wikiLineHighlighter = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.decorations = lineDecoration(view);
-  }
-  update(update) {
-    if (update.docChanged || update.viewportChanged) {
-      this.decorations = lineDecoration(update.view);
+const wikiLineHighlighter = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = lineDecoration(view);
     }
-  }
-}, {
-  decorations: (plugin) => plugin.decorations,
-});
+    update(update) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = lineDecoration(update.view);
+      }
+    }
+  },
+  {
+    decorations: (plugin) => plugin.decorations,
+  },
+);
 
 function languageExtension(language) {
   if (language === 'yaml') return yaml();
@@ -165,28 +238,65 @@ function languageExtension(language) {
 }
 
 export class CodeEditor {
-  constructor(container, {
-    value = '',
-    language = 'markdown',
-    label = '编辑器',
-    wrap = true,
-    onChange = () => {},
-    onSelection = () => {},
-  } = {}) {
+  constructor(
+    container,
+    {
+      value = '',
+      language = 'markdown',
+      label = '编辑器',
+      wrap = true,
+      onChange = () => {},
+      onSelection = () => {},
+      onShortcut = () => false,
+      onFiles = null,
+      completionSource = null,
+    } = {},
+  ) {
     this.container = container;
     this.language = language;
     this.label = label;
     this.wrapEnabled = wrap;
     this.onChange = onChange;
     this.onSelection = onSelection;
+    this.onShortcut = onShortcut;
+    this.onFiles = onFiles;
+    this.completionSource = completionSource;
     this.lastSelection = 0;
     this.silent = false;
     this.wrapCompartment = new Compartment();
+    this.completionCompartment = new Compartment();
 
     this.extensions = this.buildExtensions(label);
     this.view = new EditorView({
       state: EditorState.create({ doc: value, extensions: this.extensions }),
       parent: container,
+    });
+  }
+
+  /** Editor-local shortcuts; returning true consumes the key. */
+  shortcutKeymap() {
+    const bind = (key, action) => ({
+      key,
+      run: () => {
+        this.onShortcut(action);
+        return true;
+      },
+    });
+    return [
+      bind('Mod-i', 'italic'),
+      bind('Mod-k', 'link'),
+      bind('Mod-Shift-k', 'wikiLink'),
+      { key: 'Mod-h', run: openSearchPanel },
+    ];
+  }
+
+  completionExtension() {
+    if (!this.completionSource) return [];
+    return autocompletion({
+      override: [this.completionSource],
+      activateOnTyping: true,
+      closeOnBlur: true,
+      aboveCursor: false,
     });
   }
 
@@ -203,9 +313,22 @@ export class CodeEditor {
       highlightActiveLine(),
       indentOnInput(),
       bracketMatching(),
+      closeBrackets(),
+      search({ top: true }),
+      highlightSelectionMatches(),
+      lintGutter(),
       EditorState.tabSize.of(2),
       EditorState.allowMultipleSelections.of(false),
-      keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+      keymap.of([
+        ...this.shortcutKeymap(),
+        ...closeBracketsKeymap,
+        ...searchKeymap,
+        ...completionKeymap,
+        ...defaultKeymap,
+        ...historyKeymap,
+        indentWithTab,
+      ]),
+      this.completionCompartment.of(this.completionExtension()),
       languageExtension(this.language),
       syntaxHighlighting(highlightStyle),
       editorTheme,
@@ -214,6 +337,10 @@ export class CodeEditor {
       wikiIconHighlighter,
       cellColorHighlighter,
       wikiLineHighlighter,
+      EditorView.domEventHandlers({
+        paste: (event, view) => this.handleFileTransfer(event, view),
+        drop: (event, view) => this.handleFileTransfer(event, view),
+      }),
       EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'false' }),
       this.wrapCompartment.of(this.wrapEnabled ? EditorView.lineWrapping : []),
       EditorView.updateListener.of((update) => {
@@ -223,6 +350,21 @@ export class CodeEditor {
         if (update.selectionSet) this.onSelection();
       }),
     ];
+  }
+
+  /** Paste / drop of image files is handed to the app; returns true when consumed. */
+  handleFileTransfer(event, view) {
+    if (!this.onFiles) return false;
+    const transfer = event.dataTransfer || event.clipboardData;
+    const files = [...(transfer?.files || [])].filter((file) => /^image\//i.test(file.type));
+    if (!files.length) return false;
+    event.preventDefault();
+    if (event.type === 'drop' && typeof event.clientX === 'number') {
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos != null) view.dispatch({ selection: { anchor: pos } });
+    }
+    this.onFiles(files);
+    return true;
   }
 
   get value() {
@@ -353,10 +495,12 @@ export class CodeEditor {
     const lineEnd = lastLine.to;
     const lines = value.slice(lineStart, lineEnd).split('\n');
     const allHave = lines.every((line) => line.trim() === '' || line.startsWith(prefix));
-    const next = lines.map((line) => {
-      if (!line.trim()) return line;
-      return allHave ? line.slice(prefix.length) : prefix + line;
-    }).join('\n');
+    const next = lines
+      .map((line) => {
+        if (!line.trim()) return line;
+        return allHave ? line.slice(prefix.length) : prefix + line;
+      })
+      .join('\n');
     this.replaceRange(lineStart, lineEnd, next, 0, next.length);
   }
 
@@ -371,11 +515,13 @@ export class CodeEditor {
     const blocks = value.slice(lineStart, lineEnd).split('\n');
     const prefix = level > 0 ? `${'#'.repeat(level)} ` : '';
     const already = level > 0 && blocks.every((line) => line.startsWith(prefix));
-    const next = blocks.map((line) => {
-      const stripped = line.replace(/^#{1,6}\s+/, '');
-      if (!stripped.trim()) return line;
-      return already ? stripped : prefix + stripped;
-    }).join('\n');
+    const next = blocks
+      .map((line) => {
+        const stripped = line.replace(/^#{1,6}\s+/, '');
+        if (!stripped.trim()) return line;
+        return already ? stripped : prefix + stripped;
+      })
+      .join('\n');
     this.replaceRange(lineStart, lineEnd, next, 0, next.length);
   }
 
@@ -387,6 +533,37 @@ export class CodeEditor {
       effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
     });
     this.view.focus();
+  }
+
+  /** Replace inline diagnostics (wave underline + gutter marker + hover text). */
+  setDiagnostics(issues = []) {
+    const doc = this.view.state.doc;
+    const diagnostics = [];
+    for (const item of issues) {
+      if (!item?.message || !Number.isFinite(item.line)) continue;
+      const number = Math.max(1, Math.min(Math.round(item.line), doc.lines));
+      const line = doc.line(number);
+      diagnostics.push({
+        from: line.from,
+        to: line.to,
+        severity: item.severity === 'error' ? 'error' : 'warning',
+        message: item.message,
+        source: 'wikifactory',
+      });
+    }
+    this.view.dispatch(setDiagnostics(this.view.state, diagnostics));
+  }
+
+  setCompletionSource(source) {
+    this.completionSource = source;
+    this.view.dispatch({
+      effects: this.completionCompartment.reconfigure(this.completionExtension()),
+    });
+  }
+
+  /** Open the completion popup manually (used after inserting `[[`). */
+  triggerCompletion() {
+    if (this.completionSource) startCompletion(this.view);
   }
 
   undo() {

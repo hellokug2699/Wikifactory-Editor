@@ -12,9 +12,10 @@ const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf
 const distDir = path.join(root, 'dist');
 const outFile = path.join(distDir, `Wikifactory-Editor-v${version}-android.apk`);
 
-const androidHome = process.env.ANDROID_HOME
-  || process.env.ANDROID_SDK_ROOT
-  || (fs.existsSync('/opt/android-sdk') ? '/opt/android-sdk' : '');
+const androidHome =
+  process.env.ANDROID_HOME ||
+  process.env.ANDROID_SDK_ROOT ||
+  (fs.existsSync('/opt/android-sdk') ? '/opt/android-sdk' : '');
 if (!androidHome) {
   console.error('[android] 请设置 ANDROID_HOME（需要 Android SDK Platform 35 + Build-Tools 35.0.0）。');
   process.exit(1);

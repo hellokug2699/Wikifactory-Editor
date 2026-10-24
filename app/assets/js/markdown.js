@@ -3,9 +3,22 @@
 import { marked } from '../vendor/marked.esm.js';
 import DOMPurify from '../vendor/purify.es.mjs';
 import {
-  CALLOUTS, CALLOUT_ALIASES, COLOR_ALIASES, COLOR_TOKENS, CSS_COLOR_RE,
-  IMAGE_ALIGNS, IMAGE_SIZES, ICON_SIZES, PAGE_TAGS, GAME_AUDIO_DIR, EMBED_PROVIDERS, frontmatterData,
-  embedPageUrl, isAllowedEmbedUrl, parseAudioMarker, parseEmbedMarker,
+  CALLOUTS,
+  CALLOUT_ALIASES,
+  COLOR_ALIASES,
+  COLOR_TOKENS,
+  CSS_COLOR_RE,
+  IMAGE_ALIGNS,
+  IMAGE_SIZES,
+  ICON_SIZES,
+  PAGE_TAGS,
+  GAME_AUDIO_DIR,
+  EMBED_PROVIDERS,
+  frontmatterData,
+  embedPageUrl,
+  isAllowedEmbedUrl,
+  parseAudioMarker,
+  parseEmbedMarker,
 } from './validate.js';
 import { escapeHtml, basename, stripExt } from './state.js';
 
@@ -16,7 +29,10 @@ const SAFE_MEDIA_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 function parseImageOptions(tail) {
   const separator = tail.includes('|') ? '|' : ';';
-  const parts = tail.split(separator).map((part) => part.trim()).filter(Boolean);
+  const parts = tail
+    .split(separator)
+    .map((part) => part.trim())
+    .filter(Boolean);
   const name = parts[0] || '';
   let size = 'md';
   let align = '';
@@ -25,10 +41,22 @@ function parseImageOptions(tail) {
   let framed = false;
   for (const part of parts.slice(1)) {
     const lower = part.toLowerCase();
-    if (lower === 'thumb' || lower === 'frame') { framed = true; continue; }
-    if (IMAGE_SIZES.includes(lower)) { size = lower; continue; }
-    if (IMAGE_ALIGNS.includes(lower)) { align = lower; continue; }
-    if (lower.startsWith('alt=')) { alt = part.slice(4).trim(); continue; }
+    if (lower === 'thumb' || lower === 'frame') {
+      framed = true;
+      continue;
+    }
+    if (IMAGE_SIZES.includes(lower)) {
+      size = lower;
+      continue;
+    }
+    if (IMAGE_ALIGNS.includes(lower)) {
+      align = lower;
+      continue;
+    }
+    if (lower.startsWith('alt=')) {
+      alt = part.slice(4).trim();
+      continue;
+    }
     if (/^\d+px$/.test(lower) || part.includes('=')) continue;
     caption = caption ? `${caption}|${part}` : part;
   }
@@ -38,7 +66,10 @@ function parseImageOptions(tail) {
 function resolveColor(raw) {
   if (raw.startsWith('&')) {
     const name = raw.slice(1).trim();
-    return COLOR_TOKENS[name.toUpperCase()] || (COLOR_ALIASES[name.toLowerCase()] ? COLOR_TOKENS[COLOR_ALIASES[name.toLowerCase()]] : '');
+    return (
+      COLOR_TOKENS[name.toUpperCase()] ||
+      (COLOR_ALIASES[name.toLowerCase()] ? COLOR_TOKENS[COLOR_ALIASES[name.toLowerCase()]] : '')
+    );
   }
   return CSS_COLOR_RE.test(raw) ? raw : '';
 }
@@ -61,10 +92,7 @@ function iconStyle(options) {
 function lookupAsset(assets, name) {
   if (!assets) return null;
   const lower = name.toLowerCase();
-  return assets.get(lower)
-    || assets.get(stripExt(lower))
-    || assets.get(basename(lower))
-    || null;
+  return assets.get(lower) || assets.get(stripExt(lower)) || assets.get(basename(lower)) || null;
 }
 
 function photoIcon() {
@@ -85,7 +113,8 @@ const calloutExtension = {
     return match ? match.index : undefined;
   },
   tokenizer(src) {
-    const match = /^:::[ \t]*([\w\u4e00-\u9fa5-]+)(?:\[([^\]]*)\])?[ \t]*\r?\n([\s\S]*?)\r?\n:::[ \t]*(?:\r?\n+|$)/.exec(src);
+    const match =
+      /^:::[ \t]*([\w\u4e00-\u9fa5-]+)(?:\[([^\]]*)\])?[ \t]*\r?\n([\s\S]*?)\r?\n:::[ \t]*(?:\r?\n+|$)/.exec(src);
     if (!match) return undefined;
     return {
       type: 'wfCallout',
@@ -157,7 +186,8 @@ const wikiLinkExtension = {
     const match = /^\[\[([^[\]\n]+)\]\]/.exec(src);
     if (!match) return undefined;
     // Media markers must be handled by their own extensions, never as internal links.
-    if (IMAGE_PREFIX_RE.test(match[1]) || AUDIO_PREFIX_RE.test(match[1]) || EMBED_PREFIX_RE.test(match[1])) return undefined;
+    if (IMAGE_PREFIX_RE.test(match[1]) || AUDIO_PREFIX_RE.test(match[1]) || EMBED_PREFIX_RE.test(match[1]))
+      return undefined;
     const pipe = match[1].indexOf('|');
     const target = (pipe === -1 ? match[1] : match[1].slice(0, pipe)).trim();
     const label = pipe === -1 ? '' : match[1].slice(pipe + 1).trim();
@@ -254,7 +284,10 @@ const iconExtension = {
   tokenizer(src) {
     const match = /^\[icon=([^\]\n]+)\]/i.exec(src);
     if (!match) return undefined;
-    const parts = match[1].split(';').map((part) => part.trim()).filter(Boolean);
+    const parts = match[1]
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean);
     const name = parts[0] || '';
     let size = 'sm';
     for (const part of parts.slice(1)) {
@@ -274,9 +307,7 @@ const iconExtension = {
     if (!SAFE_MEDIA_RE.test(token.name)) return escapeHtml(token.raw);
     const asset = lookupAsset(this.parser?.options?.assets || globalThis.__WFE_ASSETS__, token.name);
     const style = token.style ? ` style="${token.style}"` : '';
-    const inner = asset
-      ? `<img src="${escapeHtml(asset)}" alt="">`
-      : escapeHtml(token.name.slice(0, 2));
+    const inner = asset ? `<img src="${escapeHtml(asset)}" alt="">` : escapeHtml(token.name.slice(0, 2));
     return `<span class="wf-icon wf-icon--${token.size}" title="${escapeHtml(token.name)}"${style}>${inner}</span>`;
   },
 };
@@ -284,7 +315,14 @@ const iconExtension = {
 marked.use({
   gfm: true,
   breaks: false,
-  extensions: [calloutExtension, wikiImageExtension, wikiAudioExtension, wikiEmbedExtension, wikiLinkExtension, iconExtension],
+  extensions: [
+    calloutExtension,
+    wikiImageExtension,
+    wikiAudioExtension,
+    wikiEmbedExtension,
+    wikiLinkExtension,
+    iconExtension,
+  ],
 });
 
 /* --------------------------------------------------------------- rendering */
@@ -292,7 +330,21 @@ marked.use({
 function prepareArticle(article, html) {
   const clean = DOMPurify.sanitize(html, {
     ADD_TAGS: ['figure', 'figcaption', 'iframe'],
-    ADD_ATTR: ['loading', 'decoding', 'data-target', 'data-kind', 'role', 'tabindex', 'aria-label', 'allow', 'allowfullscreen', 'referrerpolicy', 'frameborder', 'target', 'rel'],
+    ADD_ATTR: [
+      'loading',
+      'decoding',
+      'data-target',
+      'data-kind',
+      'role',
+      'tabindex',
+      'aria-label',
+      'allow',
+      'allowfullscreen',
+      'referrerpolicy',
+      'frameborder',
+      'target',
+      'rel',
+    ],
     FORBID_TAGS: ['script', 'style', 'object', 'embed', 'form', 'input', 'button'],
     FORBID_ATTR: ['onerror', 'onload', 'onclick'],
     ALLOW_DATA_ATTR: true,
@@ -371,14 +423,18 @@ function prepareArticle(article, html) {
   const used = new Set();
   for (const heading of article.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
     const text = heading.textContent.trim();
-    let slug = text
-      .toLowerCase()
-      .replace(/[^\w\u4e00-\u9fa5]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 64) || 'section';
+    const slug =
+      text
+        .toLowerCase()
+        .replace(/[^\w\u4e00-\u9fa5]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64) || 'section';
     let unique = slug;
     let index = 2;
-    while (used.has(unique)) { unique = `${slug}-${index}`; index += 1; }
+    while (used.has(unique)) {
+      unique = `${slug}-${index}`;
+      index += 1;
+    }
     used.add(unique);
     heading.id = unique;
   }
@@ -389,10 +445,12 @@ function prepareArticle(article, html) {
 function buildToc(article) {
   const headings = [...article.querySelectorAll('h2, h3, h4')];
   if (headings.length < 2) return { html: '', count: headings.length };
-  const items = headings.map((heading) => {
-    const level = Number(heading.tagName[1]);
-    return `<a class="toc-h${level}" href="#${heading.id}">${escapeHtml(heading.textContent.trim())}</a>`;
-  }).join('');
+  const items = headings
+    .map((heading) => {
+      const level = Number(heading.tagName[1]);
+      return `<a class="toc-h${level}" href="#${heading.id}">${escapeHtml(heading.textContent.trim())}</a>`;
+    })
+    .join('');
   return { html: items, count: headings.length };
 }
 

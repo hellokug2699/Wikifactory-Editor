@@ -34,15 +34,21 @@ const missing = [
   ['ANDROID_KEYSTORE_PASSWORD', storePassword],
   ['ANDROID_KEY_ALIAS', keyAlias],
   ['ANDROID_KEY_PASSWORD', keyPassword],
-].filter(([, value]) => !value).map(([name]) => name);
+]
+  .filter(([, value]) => !value)
+  .map(([name]) => name);
 
 if (missing.length) {
   console.error('[android:release] 缺少签名环境变量：');
   for (const name of missing) console.error(`  - ${name}`);
   console.error('\n示例：');
   console.error('  KEYTOOL=$(dirname $(mise where java@21 2>/dev/null || which java))/keytool');
-  console.error('  keytool -genkeypair -v -keystore release.jks -alias wikifactory -keyalg RSA -keysize 2048 -validity 10000');
-  console.error('  export ANDROID_KEYSTORE=$PWD/release.jks ANDROID_KEYSTORE_PASSWORD=*** ANDROID_KEY_ALIAS=wikifactory ANDROID_KEY_PASSWORD=***');
+  console.error(
+    '  keytool -genkeypair -v -keystore release.jks -alias wikifactory -keyalg RSA -keysize 2048 -validity 10000',
+  );
+  console.error(
+    '  export ANDROID_KEYSTORE=$PWD/release.jks ANDROID_KEYSTORE_PASSWORD=*** ANDROID_KEY_ALIAS=wikifactory ANDROID_KEY_PASSWORD=***',
+  );
   console.error('  npm run build:android:release');
   process.exit(1);
 }
@@ -72,14 +78,17 @@ if (!javaHome) {
 function buildToolsDir() {
   const base = path.join(androidHome, 'build-tools');
   if (!fs.existsSync(base)) return '';
-  const versions = fs.readdirSync(base).filter((name) => /^\d+(\.\d+)*$/.test(name)).sort((a, b) => {
-    const left = a.split('.').map(Number);
-    const right = b.split('.').map(Number);
-    for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-      if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) - (right[i] || 0);
-    }
-    return 0;
-  });
+  const versions = fs
+    .readdirSync(base)
+    .filter((name) => /^\d+(\.\d+)*$/.test(name))
+    .sort((a, b) => {
+      const left = a.split('.').map(Number);
+      const right = b.split('.').map(Number);
+      for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+        if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) - (right[i] || 0);
+      }
+      return 0;
+    });
   return versions.length ? path.join(base, versions[versions.length - 1]) : '';
 }
 
@@ -98,22 +107,38 @@ const outFile = path.join(distDir, `Wikifactory-Editor-v${version}-android-relea
 
 function sign(inputApk) {
   fs.rmSync(outFile, { force: true });
-  execFileSync(apksigner, [
-    'sign',
-    '--ks', keystore,
-    '--ks-key-alias', keyAlias,
-    '--ks-pass', `env:ANDROID_KEYSTORE_PASSWORD`,
-    '--key-pass', `env:ANDROID_KEY_PASSWORD`,
-    '--v4-signing-enabled', 'false',
-    '--out', outFile,
-    inputApk,
-  ], { stdio: 'inherit', env: process.env });
+  execFileSync(
+    apksigner,
+    [
+      'sign',
+      '--ks',
+      keystore,
+      '--ks-key-alias',
+      keyAlias,
+      '--ks-pass',
+      `env:ANDROID_KEYSTORE_PASSWORD`,
+      '--key-pass',
+      `env:ANDROID_KEY_PASSWORD`,
+      '--v4-signing-enabled',
+      'false',
+      '--out',
+      outFile,
+      inputApk,
+    ],
+    { stdio: 'inherit', env: process.env },
+  );
   const certs = execFileSync(apksigner, ['verify', '--print-certs', outFile], {
     encoding: 'utf8',
     env: process.env,
   });
   console.log(`[android:release] 签名完成：${outFile}`);
-  console.log(certs.trim().split('\n').filter((line) => /SHA-256|Signer/.test(line)).join('\n'));
+  console.log(
+    certs
+      .trim()
+      .split('\n')
+      .filter((line) => /SHA-256|Signer/.test(line))
+      .join('\n'),
+  );
   const hash = crypto.createHash('sha256').update(fs.readFileSync(outFile)).digest('hex');
   console.log(`[android:release] sha256 ${hash}`);
   return outFile;
@@ -173,8 +198,9 @@ try {
 }
 
 const releaseDir = path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'release');
-const built = [path.join(releaseDir, 'app-release-unsigned.apk'), path.join(releaseDir, 'app-release.apk')]
-  .find((file) => fs.existsSync(file));
+const built = [path.join(releaseDir, 'app-release-unsigned.apk'), path.join(releaseDir, 'app-release.apk')].find(
+  (file) => fs.existsSync(file),
+);
 if (!built) {
   console.error('[android:release] 构建失败：未找到 release APK');
   process.exit(1);
