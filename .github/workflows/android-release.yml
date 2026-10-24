@@ -60,6 +60,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
 
+      - name: Read package version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Restore release keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -107,11 +111,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wikifactory-editor-release-apk
-          path: dist/Wikifactory-Editor-*-android-release.apk
+          path: dist/Wikifactory-Editor-v${{ steps.version.outputs.version }}-android-release.apk
           if-no-files-found: error
 
       - name: Attach APK to GitHub Release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" dist/Wikifactory-Editor-*-android-release.apk --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" "dist/Wikifactory-Editor-v${{ steps.version.outputs.version }}-android-release.apk" --clobber
