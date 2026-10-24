@@ -19,7 +19,7 @@
 - **批量重命名**：补上路径层级、非法字符、保留目录、扩展名与 `.md`/`.mdx` 同 URL 冲突校验；正文读取改为并发 4；扫描上限从静默 60 提高到 200 并在超限时明确提示。
 - **深链**：拒绝 `.` / `..` / 空段 / 反斜杠 / 控制字符，加载前再次校验仓库路径；预览中的 `[[页面]]` 可在应用内跳转。
 - **UI 转义**：`openModal` 的 subtitle 与 `confirmDialog` 的 message 默认转义（批量重命名显式走 `messageHtml` 并转义路径）。
-- **测试与发布**：e2e 支持 Windows / macOS / Linux 的 Chromium 查找，缺失浏览器时 CI 直接失败；新增 `.github/workflows/release.yml` 构建并附加 Windows ZIP、`resources.neu`、web ZIP 与 SHA-256。
+- **测试与发布**：e2e 支持 Windows / macOS / Linux 的 Chromium 查找，缺失浏览器时 CI 直接失败；`node --test` 自行发现测试文件（Windows runner 不展开 `tests/*.test.mjs`，此前矩阵必失败）；新增 `.github/workflows/release.yml` 构建并附加 Windows ZIP、`resources.neu`、web ZIP 与 SHA-256，配置 `WINDOWS_SIGNING_P12_BASE64` 后自动签名。
 - **文档**：修正更新渠道、网络白名单、构建示例版本与 App Links 说明；补充 Content / Core 的行尾约定。
 
 ## v1.2.2 质量更新
