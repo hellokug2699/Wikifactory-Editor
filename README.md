@@ -363,7 +363,7 @@ Android 壳通过 `WebViewAssetLoader` 以 `https://appassets.androidplatform.ne
 - `[[` 页面补全、`[icon=` 图标补全与图标存在性诊断都依赖仓库文件树；完全离线且没有缓存时只会退回本地语法检查（路径、frontmatter、Wiki 语法）。
 - 多草稿只保存正文与 frontmatter，不包含「待上传资源」；切换草稿或页面后需要重新选择图片 / 音频。
 - 站内链接校验基于文件路径与文件名，无法读取页面 frontmatter 标题或页面别名，因此只给警告、不阻断。
-- 批量重命名的链接改写以同游戏目录为范围，最多扫描 200 个页面；超出时窗口会明确提示，未扫描页面的链接需要手工确认。
+- 批量重命名的链接改写默认只扫描同游戏目录（可选全部页面），单次最多读取 400 个页面；窗口会明确显示扫描是否完整、哪些引用未被覆盖或无法确定目标。
 - 远程 `editor-config.json` 指向其他仓库时，必须在侧栏「编辑范围」中确认后才会启用；确认结果按配置哈希记忆在本机。
 - Android App Links 依赖 `https://wikifactory.top/.well-known/assetlinks.json`；若该文件未部署或证书不匹配，系统会退回「用其他应用打开」的询问框。更换签名证书后必须同步更新该文件。
 - Android 只发布 CI 签名版 APK；`npm run build:android` 生成的 debug 包仅用于本地测试，不会进入 Release。没有接入 Play Store / 自动更新（更新方式 0 只会下载并提示安装）。
