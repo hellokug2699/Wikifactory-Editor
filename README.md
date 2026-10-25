@@ -1,5 +1,7 @@
 # Wikifactory Editor
 
+> 本仓库为独立的非官方 Wikifactory 相关资料/社区项目，与 wikifactory.com 及其运营方无任何关联，不代表官方立场，亦不用于任何商业目的。本站/本项目不提供任何产品开发、CAD 协作或制造对接服务。
+
 面向 [Wikifactory](https://wikifactory.top) 内容仓库贡献者的跨平台编辑器。它在编辑器中提供真正的语法高亮、Wiki 语法工具、frontmatter 表单、表格/图片生成器与按需预览，并通过**纯客户端** GitHub API 提交 PR。
 
 ![主编辑界面](docs/screenshots/desktop-main-light.png)
