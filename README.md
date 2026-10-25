@@ -90,6 +90,8 @@ npm run sign:windows -- dist/.../Wikifactory-Editor.exe   # 也可以单独签
 npm run sign:windows -- --verify dist/.../Wikifactory-Editor.exe
 ```
 
+CI 的 `release.yml` 会自动安装 `osslsigncode`；配置 `WINDOWS_SIGNING_P12_BASE64` 与 `WINDOWS_SIGNING_PASSWORD` 两个 secrets 后，每次发版都由 CI 用同一张证书签名。
+
 ### 启动失败排查（Windows）
 
 1. **解压后再运行**：直接双击 ZIP 内的 exe 不会解压，必须先把 exe 与 `resources.neu` 解压到同一目录。

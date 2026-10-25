@@ -70,8 +70,30 @@ function verify(exe) {
   return true;
 }
 
+function missingToolHint() {
+  console.error(
+    '[sign] 未找到 osslsigncode。请先安装：\n' +
+      '  Ubuntu/Debian: sudo apt-get install -y osslsigncode\n' +
+      '  macOS: brew install osslsigncode\n' +
+      '  Windows: 使用 CI（release.yml 已安装）或 WSL',
+  );
+}
+
 if (verifyOnly) {
+  if (!hasOsslsigncode()) {
+    missingToolHint();
+    process.exit(1);
+  }
   process.exit(verify(target) ? 0 : 1);
+}
+
+function hasOsslsigncode() {
+  return spawnSync('osslsigncode', ['--version'], { encoding: 'utf8' }).status !== null;
+}
+
+if (!hasOsslsigncode()) {
+  missingToolHint();
+  process.exit(1);
 }
 
 const p12Env = process.env.WINDOWS_SIGNING_P12 || '';

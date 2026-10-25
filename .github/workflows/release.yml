@@ -24,7 +24,8 @@ jobs:
           cache: npm
 
       - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y zip unzip curl
+        # osslsigncode signs the exe; without it the signing step fails with ENOENT.
+        run: sudo apt-get update && sudo apt-get install -y zip unzip curl osslsigncode
 
       - name: Install dependencies
         run: npm ci
