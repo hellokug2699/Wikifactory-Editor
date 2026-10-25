@@ -32,19 +32,88 @@ export function reviewLabel(state) {
   return REVIEW_STATE_LABELS[state] || REVIEW_STATE_LABELS.pending;
 }
 
+const FAILED_CONCLUSIONS = new Set([
+  'failure',
+  'timed_out',
+  'cancelled',
+  'action_required',
+  'startup_failure',
+  'stale',
+]);
+
+/**
+ * Turn check runs (`GET /commits/:ref/check-runs`) into a merge-relevant
+ * summary. A repository that requires status checks cannot merge while any
+ * required check is failing or still running.
+ *
+ * @param {{checkRuns?: Array<object>}} options
+ */
+export function summarizeChecks({ checkRuns = [] } = {}) {
+  const runs = (Array.isArray(checkRuns) ? checkRuns : []).map((run) => ({
+    name: String(run?.name || ''),
+    status: String(run?.status || ''),
+    conclusion: String(run?.conclusion || ''),
+    url: String(run?.html_url || run?.details_url || ''),
+  }));
+  const failed = runs.filter((run) => run.status === 'completed' && FAILED_CONCLUSIONS.has(run.conclusion));
+  const pending = runs.filter((run) => run.status !== 'completed');
+  const passed = runs.filter((run) => run.status === 'completed' && !FAILED_CONCLUSIONS.has(run.conclusion));
+  const state = failed.length ? 'failing' : pending.length ? 'pending' : runs.length ? 'passing' : 'none';
+  return {
+    state,
+    total: runs.length,
+    passed: passed.length,
+    pending: pending.length,
+    failed: failed.map((run) => ({ name: run.name, url: run.url, conclusion: run.conclusion })),
+  };
+}
+
+/** One-line check summary for the review card. */
+export function checksLabel(checks) {
+  if (!checks || checks.state === 'none') return '尚未报告';
+  if (checks.state === 'failing') return `${checks.failed.length} 项未通过（共 ${checks.total} 项）`;
+  if (checks.state === 'pending') return `${checks.pending} 项进行中（共 ${checks.total} 项）`;
+  return `全部通过（${checks.total} 项）`;
+}
+
+/**
+ * What to do when a required check blocks the merge.
+ * @param {{checks?: object, headRef?: string}} options
+ */
+export function checkGuidance({ checks, headRef = '' } = {}) {
+  const branch = headRef || '<PR 分支>';
+  return {
+    title: '自动检查未通过：PR 暂时无法合并',
+    summary:
+      '仓库要求所有必需的状态检查通过后才能合并。检查失败不影响 PR 保留；按下面步骤修复并追加提交后，检查会自动重跑。',
+    failed: (checks?.failed || []).filter((item) => item.name),
+    steps: [
+      '点开上方失败的检查，查看 GitHub Actions 日志，确认是哪一步失败。',
+      '常见原因：目录层级不对、frontmatter 字段类型错误、重复 URL / 大小写冲突、使用了保留路径、图标或图片缺失、站内链接目标不存在。',
+      '先在本地自查：npm install && npm run content:validate（在内容仓库根目录执行）。',
+      `按日志修复页面，然后回到编辑器重新提交：分支名填写「${branch}」并勾选「更新已有分支」（或直接点「填入当前 PR 分支」），即可在同一个 PR 追加提交。`,
+      '若失败与本次内容无关（基础设施故障、权限或配额问题），请在 PR 页面让维护者重新运行检查。',
+    ],
+    webAlternative: '也可以直接在 GitHub 的 PR 页面编辑文件并提交到该分支，检查会自动重新运行。',
+  };
+}
+
 /**
  * Turn a `GET /pulls/:n` response into what the review panel shows.
- * @param {{pull: object, reviews?: Array<object>}} options
+ * @param {{pull: object, reviews?: Array<object>, checks?: object}} options
  */
-export function summarizeReview({ pull, reviews = [] }) {
+export function summarizeReview({ pull, reviews = [], checks = null }) {
   const counts = reviewCounts(reviews);
+  const checksState = checks?.state || 'none';
   const state = pull?.merged
     ? 'merged'
     : pull?.state === 'closed'
       ? 'closed'
       : pull?.mergeable === false
         ? 'conflict'
-        : reviewStateOf(reviews);
+        : checksState === 'failing'
+          ? 'checks_failed'
+          : reviewStateOf(reviews);
   return {
     state,
     merged: Boolean(pull?.merged),
@@ -60,8 +129,10 @@ export function summarizeReview({ pull, reviews = [] }) {
     reviewState: reviewStateOf(reviews),
     reviewLabel: reviewLabel(reviewStateOf(reviews)),
     counts,
+    checks,
+    checksLabel: checksLabel(checks),
     headline: headlineFor(state),
-    needsAction: ['changes_requested', 'conflict', 'closed'].includes(state),
+    needsAction: ['changes_requested', 'conflict', 'closed', 'checks_failed'].includes(state),
   };
 }
 
@@ -69,6 +140,7 @@ function headlineFor(state) {
   if (state === 'merged') return '已合并';
   if (state === 'closed') return '已关闭（未合并）';
   if (state === 'conflict') return '存在冲突，需要先同步目标分支';
+  if (state === 'checks_failed') return '自动检查未通过，PR 暂时无法合并';
   if (state === 'approved') return '已获批准，可以合并';
   if (state === 'changes_requested') return '维护者要求修改';
   if (state === 'commented') return '有审阅评论待处理';

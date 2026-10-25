@@ -72,7 +72,14 @@ import { collectFormChanges, describeChanges, fmFormHtml, formValueToYaml, toggl
 import { applyYamlChanges } from './frontmatter.js';
 import { compareVersions, desktopManifestUrl, planUpdate, releaseAsset } from './updates.js';
 import { parseDeepLink, importedPagePath } from './deep-link.js';
-import { commentSummary, mergeGuidance, reviewLabel, summarizeReview } from './review.js';
+import {
+  checkGuidance,
+  commentSummary,
+  mergeGuidance,
+  reviewLabel,
+  summarizeChecks,
+  summarizeReview,
+} from './review.js';
 import {
   buildLinkIndex,
   gameOf,
@@ -102,6 +109,7 @@ import {
   initThemeWatcher,
   nextTheme,
   openModal,
+  showTooltip,
   toast,
 } from './ui.js';
 import { applyIcons, icon } from './icons.js';
@@ -3980,7 +3988,10 @@ async function openPrDialog({ prefill = null } = {}) {
   const pageTitle = frontmatterData(state.content.fmRaw).title || stripExt(basename(path));
   const typeDefault = prefill?.prType || (state.content.loadedSha ? 'edit' : 'new');
   const noteDefault = prefill?.prNote || '';
+  // An open PR from this session can be updated in place; the explicit button
+  // below fills its branch instead of silently changing the default.
   const branchDefault = prefill?.branchName || defaultBranchName(path);
+  const updateExistingDefault = prefill?.updateExisting ?? false;
   const titleDefault = prefill?.prTitle || prHeadline(typeDefault, pageTitle);
   const commitDefault = prefill?.commitMessage || prHeadline(typeDefault, pageTitle);
   const prBodyDefault =
@@ -4014,6 +4025,7 @@ async function openPrDialog({ prefill = null } = {}) {
       </div>
       <div class="form-note is-accent">
         Content 仓库不设置必须 up-to-date：提交分支会从最新 main 创建，无需手动同步。
+        仓库要求自动检查通过后才能合并；检查未通过时，可在「PR 审阅状态」查看失败项与修复步骤。
         所有请求仅在客户端发往 GitHub API。
       </div>
       ${cacheNotice}
@@ -4033,6 +4045,12 @@ async function openPrDialog({ prefill = null } = {}) {
         <div class="diff-view">${diff.html}</div>
       </details>
       ${formField('分支设置 · 分支名', `<input class="input mono" id="pr-branch" value="${escapeHtml(branchDefault)}" autocomplete="off">`, '分支创建在 Content 仓库或你的 Fork 上；编辑器不会自动追加后缀。')}
+      <label class="check-row"><input type="checkbox" id="pr-update-branch" ${updateExistingDefault ? 'checked' : ''}><span>更新已有分支（同名分支已存在时追加提交，用于修复检查失败或补充修改）</span></label>
+      ${
+        sessionPr
+          ? `<div class="button-row"><button class="btn btn-small" type="button" id="pr-use-pr-branch">填入当前 PR #${sessionPr.number} 的分支并追加提交</button></div>`
+          : ''
+      }
       ${formField('提交信息', `<input class="input" id="pr-commit" value="${escapeHtml(commitDefault)}" autocomplete="off">`)}
       ${formField('PR 标题', `<input class="input" id="pr-title" value="${escapeHtml(titleDefault)}" autocomplete="off">`)}
       ${formField('PR 说明（自动模板，可修改）', `<textarea class="input" id="pr-body" rows="10">${escapeHtml(prBodyDefault)}</textarea>`, '修改变更类型或说明时会重新生成模板；之后仍可手动调整。')}
@@ -4046,6 +4064,11 @@ async function openPrDialog({ prefill = null } = {}) {
   const commitInput = body.querySelector('#pr-commit');
   const titleInput = body.querySelector('#pr-title');
   const prBodyInput = body.querySelector('#pr-body');
+  body.querySelector('#pr-use-pr-branch')?.addEventListener('click', () => {
+    body.querySelector('#pr-branch').value = sessionPr.branch;
+    body.querySelector('#pr-update-branch').checked = true;
+    toast(`已填入 PR #${sessionPr.number} 的分支：${sessionPr.branch}`, 'info', 3200);
+  });
   const regenerate = () => {
     commitInput.value = prHeadline(typeSelect.value, pageTitle);
     titleInput.value = prHeadline(typeSelect.value, pageTitle);
@@ -4085,6 +4108,7 @@ async function openPrDialog({ prefill = null } = {}) {
       const prTitle = body.querySelector('#pr-title').value.trim();
       const prBody = body.querySelector('#pr-body').value.trim();
       const draft = body.querySelector('#pr-draft').checked;
+      const updateExisting = body.querySelector('#pr-update-branch').checked;
       if (!prNote) {
         toast('请填写「说明」（必填）：简要描述本次新增 / 修改 / 修复了什么。', 'error', 4600);
         noteInput.focus();
@@ -4132,6 +4156,7 @@ async function openPrDialog({ prefill = null } = {}) {
           prTitle,
           prBody,
           draft,
+          updateExisting,
           onProgress: log,
         });
         log(`完成：PR #${result.number}`, 'ok');
@@ -4188,6 +4213,7 @@ async function openPrDialog({ prefill = null } = {}) {
             prTitle,
             prBody,
             draft,
+            updateExisting,
           };
           modal.close();
           openBranchConflictDialog({ branchName, snapshot, message: error.message });
@@ -4540,16 +4566,19 @@ function renderPrBadge() {
 function reviewCardHtml(summary) {
   const mergeable = summary.mergeable;
   const mergeableText =
-    mergeable === true
-      ? t('review.mergeableYes')
-      : mergeable === false
-        ? t('review.mergeableNo')
-        : t('review.mergeableUnknown');
+    summary.mergeableState === 'blocked'
+      ? '暂时不可合并（等待必需检查 / 审阅）'
+      : mergeable === true
+        ? t('review.mergeableYes')
+        : mergeable === false
+          ? t('review.mergeableNo')
+          : t('review.mergeableUnknown');
   const counts = summary.counts;
   return `
     <div class="pr-summary">
       <div class="pr-summary-row"><span>${t('review.state')}</span><span>${escapeHtml(summary.headline)}</span></div>
       <div class="pr-summary-row"><span>${t('review.review')}</span><span>${escapeHtml(reviewLabel(summary.reviewState))}</span></div>
+      <div class="pr-summary-row"><span>自动检查</span><span>${escapeHtml(summary.checksLabel)}</span></div>
       <div class="pr-summary-row"><span>${t('review.mergeable')}</span><span>${escapeHtml(mergeableText)}</span></div>
       <div class="pr-summary-row"><span>${t('review.approved')}</span><span>${counts.approved}</span></div>
       <div class="pr-summary-row"><span>${t('review.changes')}</span><span>${counts.changesRequested}</span></div>
@@ -4557,6 +4586,29 @@ function reviewCardHtml(summary) {
       <div class="pr-summary-row"><span>${t('review.pending')}</span><span>${counts.pending}</span></div>
       <div class="pr-summary-row"><span>${escapeHtml(commentSummary(summary))}</span><span>+${summary.additions} / −${summary.deletions}</span></div>
     </div>`;
+}
+
+/** Failed-check guidance: names link to the logs, steps are prose. */
+function checkGuidanceHtml(guidance) {
+  const failed = (guidance.failed || []).length
+    ? `<ul class="form-help">${guidance.failed
+        .map((item) =>
+          item.url
+            ? `<li><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(item.name)}</a></li>`
+            : `<li>${escapeHtml(item.name)}</li>`,
+        )
+        .join('')}</ul>`
+    : '';
+  return `
+    <details class="diff-box" open>
+      <summary>${escapeHtml(guidance.title)}</summary>
+      <p class="form-help">${escapeHtml(guidance.summary)}</p>
+      ${failed}
+      <ol class="form-help">
+        ${guidance.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+      </ol>
+      <p class="form-help">${escapeHtml(guidance.webAlternative)}</p>
+    </details>`;
 }
 
 function guidanceHtml(guidance) {
@@ -4593,9 +4645,31 @@ async function openReviewDialog() {
       const client = new GitHubClient(sessionToken);
       const pull = await client.getPull(pr.owner, pr.repo, pr.number);
       const reviews = await client.listPullReviews(pr.owner, pr.repo, pr.number).catch(() => []);
-      const summary = summarizeReview({ pull, reviews });
+      // Required status checks decide whether the PR can merge at all.
+      let checksError = '';
+      const checkRuns = pull?.head?.sha
+        ? await client.listCheckRuns(pr.owner, pr.repo, pull.head.sha).catch((error) => {
+            checksError = error?.message || '无法读取检查状态';
+            return null;
+          })
+        : null;
+      const checks = checkRuns ? summarizeChecks({ checkRuns }) : null;
+      const summary = summarizeReview({ pull, reviews, checks });
       if (loading) loading.hidden = true;
       card.innerHTML = reviewCardHtml(summary);
+      if (checksError) {
+        card.insertAdjacentHTML(
+          'beforeend',
+          `<div class="form-note is-warn">无法读取自动检查状态：${escapeHtml(checksError)}（细粒度 token 需要 Checks: read 权限；经典 token 通常已包含）。</div>`,
+        );
+      }
+      if (summary.checks?.state === 'failing') {
+        const guidance = checkGuidance({
+          checks: summary.checks,
+          headRef: pull.head?.ref || pr.branch,
+        });
+        card.insertAdjacentHTML('beforeend', checkGuidanceHtml(guidance));
+      }
       if (pull.mergeable === false) {
         const guidance = mergeGuidance({
           headRef: pull.head?.ref || pr.branch,
@@ -5108,7 +5182,10 @@ async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repo
 function bindEvents() {
   els.toolbar.addEventListener('click', (event) => {
     const button = event.target.closest('[data-action]');
-    if (button) handleToolbarAction(button.dataset.action);
+    if (!button) return;
+    // Touch devices have no hover: tapping shows the button's explanation.
+    showTooltip(button, button.getAttribute('title') || button.getAttribute('aria-label') || '');
+    handleToolbarAction(button.dataset.action);
   });
 
   // Remote config approval lives in the sidebar note and can be re-rendered.

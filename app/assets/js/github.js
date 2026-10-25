@@ -292,6 +292,28 @@ export class GitHubClient {
     return Array.isArray(data) ? data : [];
   }
 
+  /**
+   * Check runs for a commit (GitHub Actions and other checks).
+   * Needs Checks: read access; callers must tolerate a 403.
+   */
+  async listCheckRuns(owner, repo, ref) {
+    assertContentRepo(repo);
+    const { data } = await this.request(`${repoBase(owner, repo)}/commits/${encodeRef(ref)}/check-runs?per_page=100`, {
+      accept: 'application/vnd.github+json',
+    });
+    return Array.isArray(data?.check_runs) ? data.check_runs : [];
+  }
+
+  /**
+   * Commit metadata from the REST commits endpoint (includes the GitHub author
+   * login, unlike the low-level git commit object).
+   */
+  async getCommitInfo(owner, repo, sha) {
+    assertContentRepo(repo);
+    const { data } = await this.request(`${repoBase(owner, repo)}/commits/${encodeRef(sha)}`);
+    return data;
+  }
+
   async ensureFork(owner, repo, login, onProgress) {
     assertContentRepo(repo);
     onProgress('创建 / 检查 Fork…');
@@ -347,6 +369,8 @@ export class GitHubClient {
    * @param {string} options.prTitle
    * @param {string} options.prBody
    * @param {boolean} [options.draft]
+   * @param {boolean} [options.updateExisting] append a commit to an existing
+   *   branch instead of creating a new one (used to fix failed status checks)
    * @param {(message:string, kind?:string) => void} [options.onProgress]
    * @param {object} [options.journal] injected journal (tests / alternative storage)
    */
@@ -361,6 +385,7 @@ export class GitHubClient {
       prTitle,
       prBody,
       draft = false,
+      updateExisting = false,
       onProgress = () => {},
       journal = submitJournal,
     } = options;
@@ -421,6 +446,42 @@ export class GitHubClient {
         headOwner = owner;
         forkUsed = false;
       }
+    }
+
+    // Append to an existing branch on purpose (for example to fix a failed
+    // required check on the same PR). Only the author's own branch is accepted.
+    if (!branchSha && !resume && updateExisting) {
+      let hit = null;
+      for (const candidate of [owner, user.login]) {
+        try {
+          const ref = await this.getRef(candidate, repo, branch);
+          hit = { owner: candidate, sha: ref.object.sha };
+          break;
+        } catch (error) {
+          if (!(error instanceof GitHubError && error.status === 404)) throw error;
+        }
+      }
+      if (!hit) {
+        throw new GitHubError(`分支「${branch}」不存在，无法追加提交。请取消勾选「更新已有分支」后重试。`, 404, {
+          code: 'BRANCH_MISSING',
+          branch,
+        });
+      }
+      const tip = await this.getCommitInfo(hit.owner, repo, hit.sha);
+      if (tip?.author?.login !== user.login) {
+        throw new GitHubError(
+          `分支「${branch}」的最新提交不属于当前账号（${tip?.author?.login || '未知作者'}），无法追加提交。请更换分支名。`,
+          403,
+          { code: 'BRANCH_NOT_OURS', branch },
+        );
+      }
+      headOwner = hit.owner;
+      forkUsed = hit.owner !== owner;
+      branchSha = hit.sha;
+      baseSha = branchSha;
+      baseCommit = await this.getCommit(hit.owner, repo, branchSha);
+      save({ stage: 'branch', baseSha });
+      onProgress(`在已有分支 ${branch} 上追加提交（${branchSha.slice(0, 8)}）`, 'ok');
     }
 
     if (!branchSha && !resume) {

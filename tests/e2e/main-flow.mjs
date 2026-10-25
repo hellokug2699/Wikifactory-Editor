@@ -177,12 +177,25 @@ async function mockGitHub(page) {
         changed_files: 1,
         additions: 3,
         deletions: 1,
-        head: { ref: 'wfe/e2e', repo: { owner: { login: OWNER } } },
+        head: { ref: 'wfe/e2e', sha: sha('a'), repo: { owner: { login: OWNER } } },
         base: { ref: 'main' },
       });
     }
     if (/\/pulls\/42\/reviews$/.test(pathname) && method === 'GET') {
       return json([{ state: 'APPROVED', user: { login: 'maintainer' } }]);
+    }
+    if (pathname.includes('/check-runs')) {
+      return json({
+        total_count: 1,
+        check_runs: [
+          {
+            name: 'Validate content',
+            status: 'completed',
+            conclusion: 'success',
+            html_url: `https://github.com/${OWNER}/${REPO}/actions/runs/1`,
+          },
+        ],
+      });
     }
     if (pathname.endsWith('/pulls')) return json([]);
     return json({ message: `unmocked ${method} ${pathname}` }, 404);

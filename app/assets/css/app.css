@@ -2486,6 +2486,34 @@ body.modal-open {
   animation: toastOut 0.18s var(--ease) forwards;
 }
 
+/* Tap tooltip: toolbar buttons explain themselves on touch devices too. */
+.click-tooltip {
+  position: fixed;
+  z-index: 900;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text) 92%, transparent);
+  color: var(--surface);
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(2px);
+  transition:
+    opacity 0.14s var(--ease),
+    transform 0.14s var(--ease);
+  box-shadow: var(--shadow-md);
+}
+.click-tooltip[data-placement='top'] {
+  transform: translateX(-50%) translateY(-2px);
+}
+.click-tooltip.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ------------------------------------------------------------- validation */
 .issue-list {
   display: grid;

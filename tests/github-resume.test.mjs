@@ -22,6 +22,7 @@ class FakeClient extends GitHubClient {
     this.calls = [];
     this.branchTip = branchTip;
     this.findQueue = [...findQueue];
+    this.commitInfo = { author: { login: 'user' } };
   }
 
   async getUser() {
@@ -33,7 +34,7 @@ class FakeClient extends GitHubClient {
   }
 
   async getRef(owner, repo, branch) {
-    this.calls.push(['getRef', branch]);
+    this.calls.push(['getRef', owner, branch]);
     if (!this.branchTip) throw new GitHubError('not found', 404);
     return { object: { sha: this.branchTip } };
   }
@@ -41,6 +42,11 @@ class FakeClient extends GitHubClient {
   async getCommit(owner, repo, sha) {
     this.calls.push(['getCommit', sha]);
     return { tree: { sha: 'tree-base' } };
+  }
+
+  async getCommitInfo(owner, repo, sha) {
+    this.calls.push(['getCommitInfo', owner, sha]);
+    return this.commitInfo;
   }
 
   async createRef(owner, repo, branch, sha) {
@@ -170,4 +176,48 @@ test('a timed-out PR creation is found on the next attempt', async () => {
   assert.equal(result.number, 7);
   assert.equal(client.calls.filter((call) => call[0] === 'createCommit').length, kindsBefore);
   assert.equal(journal.read(), null);
+});
+
+test('updateExisting appends a commit instead of creating a branch', async () => {
+  const storage = memoryStorage();
+  const journal = createSubmitJournal({ storage });
+  const client = new FakeClient({ branchTip: 'branch-tip' });
+  client.createPullRequest = async () => {
+    client.calls.push(['createPullRequest']);
+    return { number: 9, html_url: 'https://example/pr/9' };
+  };
+
+  const result = await client.submitPullRequest({ ...options, updateExisting: true, journal });
+  assert.equal(result.number, 9);
+  const kinds = client.calls.map((call) => call[0]);
+  assert.ok(!kinds.includes('createRef'), 'must not create a branch');
+  const commit = client.calls.find((call) => call[0] === 'createCommit');
+  assert.deepEqual(commit.slice(1), ['tree-new', 'branch-tip']);
+  assert.equal(journal.read(), null);
+});
+
+test('updateExisting refuses a branch whose tip belongs to someone else', async () => {
+  const client = new FakeClient({ branchTip: 'branch-tip' });
+  client.commitInfo = { author: { login: 'someone-else' } };
+  await assert.rejects(
+    client.submitPullRequest({
+      ...options,
+      updateExisting: true,
+      journal: createSubmitJournal({ storage: memoryStorage() }),
+    }),
+    /不属于当前账号/,
+  );
+  assert.ok(!client.calls.some((call) => call[0] === 'createBlob'));
+});
+
+test('updateExisting reports a missing branch instead of guessing', async () => {
+  const client = new FakeClient({ branchTip: '' });
+  await assert.rejects(
+    client.submitPullRequest({
+      ...options,
+      updateExisting: true,
+      journal: createSubmitJournal({ storage: memoryStorage() }),
+    }),
+    /不存在/,
+  );
 });

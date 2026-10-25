@@ -35,6 +35,52 @@ export function escape(value) {
     .replaceAll('"', '&quot;');
 }
 
+/* ---------------------------------------------------------------- tooltip */
+
+let tooltipNode = null;
+let tooltipTimer = 0;
+
+export function hideTooltip() {
+  if (tooltipTimer) clearTimeout(tooltipTimer);
+  tooltipTimer = 0;
+  const node = tooltipNode;
+  tooltipNode = null;
+  if (!node) return;
+  node.classList.remove('is-visible');
+  setTimeout(() => node.remove(), 160);
+}
+
+/**
+ * Short-lived tooltip anchored to an element.
+ *
+ * Touch devices have no hover, so tapping a toolbar button shows the same
+ * explanation that `title` provides on desktop — on every platform, for both.
+ *
+ * @param {HTMLElement} anchor
+ * @param {string} text
+ * @param {number} [duration]
+ */
+export function showTooltip(anchor, text, duration = 1800) {
+  if (!anchor || !text) return;
+  hideTooltip();
+  const node = document.createElement('div');
+  node.className = 'click-tooltip';
+  node.setAttribute('role', 'tooltip');
+  node.textContent = text;
+  document.body.appendChild(node);
+
+  const rect = anchor.getBoundingClientRect();
+  const placement = rect.top > 64 ? 'top' : 'bottom';
+  node.dataset.placement = placement;
+  const half = Math.min(node.offsetWidth, window.innerWidth - 24) / 2;
+  node.style.left = `${Math.min(Math.max(rect.left + rect.width / 2, half + 8), window.innerWidth - half - 8)}px`;
+  node.style.top = `${placement === 'top' ? rect.top - 6 : rect.bottom + 6}px`;
+
+  tooltipNode = node;
+  requestAnimationFrame(() => node.classList.add('is-visible'));
+  tooltipTimer = setTimeout(hideTooltip, duration);
+}
+
 /**
  * Open a modal.
  * @param {object} options
@@ -47,6 +93,7 @@ export function escape(value) {
  * @param {() => void} [options.onClose]
  */
 export function openModal(options) {
+  hideTooltip();
   closeModal(true);
   lastFocus = document.activeElement;
   const {
