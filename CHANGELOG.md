@@ -2,6 +2,15 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 3 个版本的摘要。
 
+## v1.2.5 质量更新
+
+- **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。站点侧部署 `/.well-known/assetlinks.json`（由私有 Core 仓库的 `public/.well-known/assetlinks.json` 提供）并通过 App Links 校验后，`wikifactory.top/games/…` 会直接唤起 App；若校验未通过，系统会退回「用其他应用打开」的询问框（不会静默失败）。应用内点击站内链接也走同一套深链解析。网页版可用 `?path=games/…` 直达。
+- **审阅闭环**：PR 创建后按钮变为 `PR #编号`，可随时打开「PR 审阅状态」查看 state / 审阅结论 / 批准·要求修改·评论·待审阅数量 / 评论与审阅评论数 / 变更行数，并每 30 秒刷新。存在冲突时不再建议「换个分支名」，而是给出 `git merge`、`git rebase`、`--force-with-lease` 的完整步骤与 GitHub 网页端替代方案。
+- **批量操作**：侧栏新增「批量操作」。**批量编辑**把多个页面放进编辑队列，逐页修改后汇总成一个 PR（切换页面时自动保留队列内容）；**批量重命名**一次改多个页面，并扫描同游戏目录自动改写指向这些页面的 `[[…]]` 站内链接（代码块与行内代码不动），最终一个 PR 内完成改名 + 链接更新 + 旧文件删除。
+- **i18n 与无障碍**：新增 `i18n.js`（zh / en），界面控件、工具栏、设置与 v1.2.5 新窗口全部双语，缺失条目回退中文。CSP 收窄：`img-src` / `media-src` 只允许 `raw.githubusercontent.com` 与本机，`frame-src` 仍只放开 YouTube / 哔哩哔哩 / Vimeo；`frame-ancestors 'none'` 与 `X-Frame-Options: DENY` 通过 `app/_headers` 下发（浏览器忽略 meta 里的 frame-ancestors）。提交 / 批量改名等 busy 期间 Esc 与点击遮罩不再关闭窗口；toast 区域补 `role="status"` 与 `aria-live`。
+- **配置化**：新增仓库根 `editor-config.json`（Content owner/repo/branch、Release 仓库、保留路径与上传上限），构建时由 `scripts/editor-config.mjs` 生成带 SHA-256 与 owner 白名单的 `editor-config.js`。运行时先校验哈希：仓库地址与内置值一致时直接应用；若指向其他仓库且哈希不符，**不会自动切换**，而是在侧栏「编辑范围」中等待确认（批准结果按配置哈希记住）。`rules.maxUploadMb` 会真正限制上传大小；`rules.reservedPaths` 必须与共享规则 `content-rules.js` 一致（它是断言，不是第三份副本）。**迁移 Content 仓库只需改这个 JSON 并在客户端确认，不必发新版**。
+- 版本号：**1.2.5**（Android versionCode 10205）。
+
 ## v1.2.4 质量更新
 
 - **拆分 main.js**：抽出 `dom.js`（`h()` 模板函数，默认转义）、`pr.js`（PR 模板 / 分支名 / diff 数据）、`repo-cache.js`（离线文件树缓存）、`issues.js`（问题分组与行内诊断映射）、`toolbar.js`、`frontmatter-form.js`；`main.js` 只保留 UI 编排，新增逻辑可以直接写单测。

@@ -165,6 +165,10 @@ const ZH = {
   'link.opened': '已通过深链打开',
 
   'cfg.remote': '已加载 editor-config.json',
+  'cfg.signed': '（签名有效，来自配置发布者）',
+  'cfg.unsigned': '（未签名，仅通过哈希与白名单校验）',
+  'cfg.approved': '（未签名，已由你手动确认）',
+  'cfg.badSignature': '配置签名无效，已回退内置配置',
   'cfg.verified': '（哈希校验通过）',
   'cfg.unverified': '（配置已更新，哈希与当前版本不同，已按白名单校验后应用）',
   'cfg.rejected': 'editor-config.json 未通过白名单校验，已回退到内置配置',
@@ -334,6 +338,10 @@ const EN = {
   'link.opened': 'Opened via deep link',
 
   'cfg.remote': 'Loaded editor-config.json',
+  'cfg.signed': ' (signature valid, published by the config signer)',
+  'cfg.unsigned': ' (unsigned; hash and whitelist checks only)',
+  'cfg.approved': ' (unsigned; approved manually)',
+  'cfg.badSignature': 'Config signature is invalid; built-in config kept',
   'cfg.verified': ' (hash verified)',
   'cfg.unverified': ' (config changed since release; applied after whitelist checks)',
   'cfg.rejected': 'editor-config.json failed whitelist checks; built-in config kept',

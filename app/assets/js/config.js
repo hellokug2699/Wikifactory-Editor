@@ -1,5 +1,12 @@
 /** Runtime editor config: fetch + hash check + whitelist, then apply. */
-import { ALLOWED_OWNERS, CONFIG_SHA256, CONFIG_URL, DEFAULT_CONFIG } from './editor-config.js';
+import {
+  ALLOWED_OWNERS,
+  CONFIG_PUBLIC_KEY_JWK,
+  CONFIG_SHA256,
+  CONFIG_SIG_URL,
+  CONFIG_URL,
+  DEFAULT_CONFIG,
+} from './editor-config.js';
 import { RESERVED_PATHS } from './content-rules.js';
 import { setRepoConfig } from './state.js';
 
@@ -8,7 +15,14 @@ const OWNER_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 const APPROVAL_KEY = 'wikifactory-editor:config-approval:v1';
 
-let active = { config: DEFAULT_CONFIG, source: 'default', verified: true, problems: [] };
+let active = {
+  config: DEFAULT_CONFIG,
+  source: 'default',
+  verified: true,
+  signature: 'none',
+  trust: 'builtin',
+  problems: [],
+};
 /** Remote config that passed the whitelist but would move the repo without a matching pin. */
 let pending = null;
 
@@ -81,15 +95,41 @@ export async function sha256Hex(text, subtle = globalThis.crypto?.subtle) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Verify the detached ECDSA signature of editor-config.json.
+ * Distinct from the SHA-256 pin: the pin proves "not corrupted", the signature
+ * proves "published by the configuration signer" even if the file changed.
+ */
+export async function verifyConfigSignature(
+  text,
+  signatureBase64,
+  jwk = CONFIG_PUBLIC_KEY_JWK,
+  subtle = globalThis.crypto?.subtle,
+) {
+  if (!subtle || !jwk || !signatureBase64) return false;
+  try {
+    const key = await subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const raw = globalThis.atob(String(signatureBase64).trim());
+    const signature = Uint8Array.from(raw, (char) => char.charCodeAt(0));
+    const data = new TextEncoder().encode(String(text).replace(/\r\n/g, '\n'));
+    return await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, signature, data);
+  } catch {
+    return false;
+  }
+}
+
 /** Apply a validated config to the shared repo bindings. */
-export function applyEditorConfig(config, { source = 'remote', verified = false, problems = [] } = {}) {
+export function applyEditorConfig(
+  config,
+  { source = 'remote', verified = false, signature = 'none', trust = 'unsigned', problems = [] } = {},
+) {
   const content = config.content || DEFAULT_CONFIG.content;
   const editor = config.editor || DEFAULT_CONFIG.editor;
   setRepoConfig({
     content: { owner: content.owner, repo: content.repo, branch: content.branch || '' },
     editor: { owner: editor.owner, repo: editor.repo },
   });
-  active = { config, source, verified, problems };
+  active = { config, source, verified, signature, trust, problems };
   return active;
 }
 
@@ -140,7 +180,13 @@ export function approvePendingConfig() {
   const approved = pending;
   pending = null;
   writeApproval(approved.hash);
-  return applyEditorConfig(approved.config, { source: 'remote', verified: false, problems: [] });
+  return applyEditorConfig(approved.config, {
+    source: 'remote',
+    verified: approved.verified,
+    signature: approved.signature,
+    trust: 'approved',
+    problems: [],
+  });
 }
 
 /** Keep the built-in config; remember the choice so we do not nag every boot. */
@@ -158,7 +204,11 @@ export function dismissPendingConfig() {
  * A config that is whitelisted but both unpinned and pointed at a different
  * repository is held in `pendingConfig()` instead of being applied silently.
  */
-export async function loadEditorConfig({ fetchImpl = globalThis.fetch, subtle = globalThis.crypto?.subtle } = {}) {
+export async function loadEditorConfig({
+  fetchImpl = globalThis.fetch,
+  subtle = globalThis.crypto?.subtle,
+  publicKeyJwk = CONFIG_PUBLIC_KEY_JWK,
+} = {}) {
   try {
     // Boot must not stall on a slow network; 4 s is plenty for a 300-byte file.
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
@@ -172,20 +222,57 @@ export async function loadEditorConfig({ fetchImpl = globalThis.fetch, subtle = 
       return applyEditorConfig(DEFAULT_CONFIG, { source: 'default', verified: true, problems });
     }
     const hash = await sha256Hex(text, subtle);
-    const verified = Boolean(hash) && hash === CONFIG_SHA256;
+    const integrity = Boolean(hash) && hash === CONFIG_SHA256;
+
+    // Authenticity is independent of the config content: the signature is
+    // checked against a public key baked into this build.
+    let signature = 'missing';
+    try {
+      const sigResponse = await Promise.race([
+        fetchImpl(`${CONFIG_SIG_URL}?t=${Date.now()}`, { cache: 'no-store' }),
+        timeout,
+      ]);
+      if (sigResponse?.ok) {
+        const sigText = await sigResponse.text();
+        signature = (await verifyConfigSignature(text, sigText, publicKeyJwk, subtle)) ? 'valid' : 'invalid';
+      }
+    } catch {
+      signature = 'unavailable';
+    }
+
+    if (signature === 'invalid') {
+      console.warn('[config] editor-config.json 签名无效，已拒绝并回退内置配置');
+      return applyEditorConfig(DEFAULT_CONFIG, {
+        source: 'default',
+        verified: true,
+        signature,
+        trust: 'invalid',
+        problems: ['editor-config.json 签名无效'],
+      });
+    }
+
+    const trusted = signature === 'valid';
     const repoChanged =
       config.content.owner !== DEFAULT_CONFIG.content.owner ||
       config.content.repo !== DEFAULT_CONFIG.content.repo ||
       config.editor.owner !== DEFAULT_CONFIG.editor.owner ||
       config.editor.repo !== DEFAULT_CONFIG.editor.repo;
 
-    if (!verified && repoChanged && readApproval() !== hash) {
-      pending = { config, hash, problems: [] };
-      console.warn('[config] 远程配置指向其他仓库且未通过哈希固定，等待用户确认');
+    // An unverifiable config is only applied when it cannot move the repository
+    // (or the user has already approved this exact content).
+    if (!trusted && !integrity && repoChanged && readApproval() !== hash) {
+      pending = { config, hash, verified: integrity, signature, problems: [] };
+      console.warn('[config] 远程配置未通过签名或哈希固定，等待用户确认');
       return { ...active, pending: true };
     }
 
-    return applyEditorConfig(config, { source: 'remote', verified, problems: [] });
+    return applyEditorConfig(config, {
+      source: 'remote',
+      verified: integrity,
+      signature,
+      trust: trusted ? 'signed' : 'unverified',
+      problems: [],
+    });
   } catch (error) {
     console.warn('[config] 读取 editor-config.json 失败，使用内置配置', error);
     return active;

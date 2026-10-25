@@ -1,20 +1,30 @@
 /* Wikifactory Editor service worker: offline app shell for the web build.
  *
  * The VERSION placeholder below is replaced by scripts/build-web.mjs at build
- * time, so every release gets a fresh cache bucket. The precache list must cover
- * every file the app needs on a cold, offline start; `tests/sw.test.mjs` ensures
- * that it stays complete.
+ * time, so every release gets a fresh cache bucket.
+ *
+ * Two guarantees drive this file:
+ *   1. Install is atomic. Every critical file is cached before the new worker
+ *      activates; a single failure aborts the install and keeps the old worker
+ *      (and its cache) in charge. Icons are optional and never block.
+ *   2. One page load sees one version. App code and CSS are served cache-first
+ *      from this worker's bucket, and the worker never calls clients.claim(),
+ *      so a page keeps the version it started with until it reloads.
+ *
+ * `tests/sw.test.mjs` enforces the file list, and `tests/sw-install.test.mjs`
+ * runs the handlers against a fake Cache API.
  */
 const VERSION = '__WFE_VERSION__';
 const CACHE = `wfe-${VERSION}`;
+const META_CACHE = 'wfe-meta';
+const ACTIVE_KEY = new Request('./__wfe_active__');
 
-const PRECACHE = [
+/** Everything the app needs to boot offline. Any failure aborts the install. */
+const CRITICAL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './assets/css/app.css',
-  './assets/icons/app-icon.svg',
-  './assets/icons/app-icon.png',
   './assets/vendor/codemirror.bundle.js',
   './assets/vendor/marked.esm.js',
   './assets/vendor/neutralino.js',
@@ -50,48 +60,65 @@ const PRECACHE = [
   './assets/js/version.js',
 ];
 
+/** Cosmetic assets: cached when possible, never block the install. */
+const OPTIONAL = ['./assets/icons/app-icon.svg', './assets/icons/app-icon.png'];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE)
-      // One missing file must not abort the whole install.
-      .then((cache) => Promise.all(PRECACHE.map((file) => cache.add(file).catch(() => {}))))
-      .then(() => self.skipWaiting()),
+    (async () => {
+      const cache = await caches.open(CACHE);
+      try {
+        // Cache.addAll is a single batch: it rejects if any request fails, and
+        // we delete the half-built bucket so a broken install cannot be used.
+        await cache.addAll(CRITICAL);
+      } catch (error) {
+        await caches.delete(CACHE);
+        console.warn('[sw] 预缓存失败，保留旧版本', error);
+        throw error;
+      }
+      await Promise.all(OPTIONAL.map((file) => cache.add(file).catch(() => {})));
+      await self.skipWaiting();
+    })(),
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim()),
+    (async () => {
+      const keys = await caches.keys();
+      const meta = await caches.open(META_CACHE);
+      const active = await meta.match(ACTIVE_KEY);
+      const previous = active ? await active.text() : '';
+      // Keep this version plus the one that may still be serving open pages;
+      // drop everything older. Never touch non-`wfe-` caches on this origin.
+      const keep = new Set([CACHE, META_CACHE, previous].filter(Boolean));
+      await Promise.all(
+        keys.filter((key) => key.startsWith('wfe-') && !keep.has(key)).map((key) => caches.delete(key)),
+      );
+      await meta.put(ACTIVE_KEY, new Response(CACHE));
+      // No clients.claim(): the new version takes over on the next reload.
+    })(),
   );
 });
 
-async function put(request, response) {
-  if (!response || !response.ok) return response;
-  const cache = await caches.open(CACHE);
-  await cache.put(request, response.clone());
-  return response;
-}
-
-/** Fresh code wins; the cache is only the offline fallback. */
-async function networkFirst(request, fallback = '') {
+/** App code never comes from two versions in one page load. */
+async function cacheFirst(request) {
+  const cached = await caches.match(request, { cacheName: CACHE });
+  if (cached) return cached;
   try {
-    return await put(request, await fetch(request));
+    return await fetch(request);
   } catch {
-    return (await caches.match(request)) || (fallback && (await caches.match(fallback))) || Response.error();
+    return Response.error();
   }
 }
 
-/** Large, rarely changing assets: serve from cache, refresh in the background. */
-async function staleWhileRevalidate(request) {
-  const cached = await caches.match(request);
-  const network = fetch(request)
-    .then((response) => put(request, response))
-    .catch(() => cached);
-  return cached || network;
+/** Fresh HTML wins; the cached shell is only the offline fallback. */
+async function networkOrShell(request) {
+  try {
+    return await fetch(request);
+  } catch {
+    return (await caches.match(request, { cacheName: CACHE })) || (await caches.match('./index.html', { cacheName: CACHE })) || Response.error();
+  }
 }
 
 self.addEventListener('fetch', (event) => {
@@ -103,15 +130,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, './index.html'));
+    event.respondWith(networkOrShell(request));
     return;
   }
 
-  // App code changes every release: never serve a stale module.
-  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
-    event.respondWith(networkFirst(request));
-    return;
-  }
-
-  event.respondWith(staleWhileRevalidate(request));
+  event.respondWith(cacheFirst(request));
 });

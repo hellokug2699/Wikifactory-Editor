@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { releaseAssetUrl } from './repo.mjs';
 
-export const VERSION = '1.2.7';
+export const VERSION = '1.2.8';
 export const APPLICATION_ID = 'top.wikifactory.editor';
 
 /** Deterministic versionCode: major*10000 + minor*100 + patch (CI passes it to Gradle). */

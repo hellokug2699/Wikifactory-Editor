@@ -1,6 +1,6 @@
 {
   "name": "wikifactory-editor",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "private": true,
   "description": "Wikifactory Content contributor editor with syntax highlighting and client-side GitHub PR flow.",
   "type": "module",
@@ -11,7 +11,7 @@
     "build:android": "node scripts/build-android.mjs",
     "build:android:release": "node scripts/android-release.mjs",
     "sign:windows": "node scripts/sign-windows.mjs",
-    "test": "node scripts/version.mjs --check && node scripts/editor-config.mjs --check && node scripts/selftest.mjs && node scripts/github-selftest.mjs && node scripts/token-selftest.mjs && node --test",
+    "test": "node scripts/version.mjs --check && node scripts/editor-config.mjs --check && node scripts/config-sign.mjs --verify && node scripts/selftest.mjs && node scripts/github-selftest.mjs && node scripts/token-selftest.mjs && node --test",
     "lint": "eslint . && prettier --check \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"tests/**/*.mjs\" \"eslint.config.js\"",
     "lint:fix": "eslint . --fix && prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"tests/**/*.mjs\" \"eslint.config.js\"",
     "format": "prettier --write \"app/assets/js/**/*.js\" \"scripts/**/*.mjs\" \"tests/**/*.mjs\" \"eslint.config.js\"",
@@ -27,7 +27,10 @@
     "version:sync": "node scripts/version.mjs --sync",
     "config:check": "node scripts/editor-config.mjs --check",
     "config:sync": "node scripts/editor-config.mjs --sync",
-    "repo:audit": "node scripts/repo-audit.mjs"
+    "repo:audit": "node scripts/repo-audit.mjs",
+    "config:keygen": "node scripts/config-sign.mjs --keygen",
+    "config:sign": "node scripts/config-sign.mjs --sign",
+    "config:verify": "node scripts/config-sign.mjs --verify"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.4",

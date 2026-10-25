@@ -4181,6 +4181,14 @@ function openMobileMenu() {
 function updateRepoScope() {
   const config = activeConfig();
   const pending = pendingConfig();
+  const trustText =
+    config.trust === 'signed'
+      ? t('cfg.signed')
+      : config.trust === 'approved'
+        ? t('cfg.approved')
+        : config.trust === 'unverified'
+          ? t('cfg.unsigned')
+          : '';
   const scope = `${CONTENT_OWNER}/${CONTENT_REPO}`;
   const note = $('#repo-scope-note');
   if (note) {
@@ -4196,11 +4204,7 @@ function updateRepoScope() {
         </div>`
       : '';
     note.innerHTML = `仅可读取与修改 <code>${escapeHtml(scope)}</code>。Core / Alias 仓库不在本编辑器的访问范围内。${
-      config.source === 'remote'
-        ? `<br>仓库地址来自 <code>editor-config.json</code>${escapeHtml(
-            config.verified ? t('cfg.verified') : t('cfg.unverified'),
-          )}。`
-        : ''
+      config.source === 'remote' ? `<br>仓库地址来自 <code>editor-config.json</code>${escapeHtml(trustText)}。` : ''
     }${pendingBlock}`;
   }
   els.statRepo.textContent = scope;
@@ -4208,8 +4212,10 @@ function updateRepoScope() {
   if (scopeLabel) scopeLabel.textContent = scope;
   if (pending) {
     toast(t('cfg.pendingToast'), 'info', 6200);
-  } else if (config.source === 'remote' && !config.verified) {
-    toast(`${t('cfg.remote')}${t('cfg.unverified')}`, 'info', 5600);
+  } else if (config.trust === 'invalid') {
+    toast(t('cfg.badSignature'), 'error', 6200);
+  } else if (config.source === 'remote' && config.trust === 'unverified') {
+    toast(`${t('cfg.remote')}${t('cfg.unsigned')}`, 'info', 5600);
   }
   if (config.problems?.length) {
     toast(`${t('cfg.rejected')}：${config.problems[0]}`, 'error', 5600);
