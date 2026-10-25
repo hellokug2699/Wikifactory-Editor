@@ -18,6 +18,13 @@ import {
 } from './state.js';
 import { CodeEditor, CURSOR } from './code-editor.js';
 import {
+  CC_LICENSE_NAME,
+  CC_LICENSE_URL,
+  hasAcceptedLicense,
+  licenseNotices,
+  rememberLicense,
+} from './license-agreement.js';
+import {
   CALLOUTS,
   COLOR_TOKENS,
   EMBED_PROVIDERS,
@@ -64,7 +71,15 @@ import {
   saveDraftRecord,
 } from './drafts.js';
 import { h, raw } from './dom.js';
-import { buildPrBody, buildPrDiff, defaultBranchName, prHeadline, PR_TYPES, uniqueBranchSuggestion } from './pr.js';
+import {
+  buildPrBody,
+  buildPrDiff,
+  defaultBranchName,
+  prHeadline,
+  prLabelOf,
+  PR_TYPES,
+  uniqueBranchSuggestion,
+} from './pr.js';
 import { readRepoCache, repoCacheNote, writeRepoCache } from './repo-cache.js';
 import { dedupeIssues, issueCounts, issuesForEditor, jumpTarget } from './issues.js';
 import { TOOLBAR } from './toolbar.js';
@@ -3570,6 +3585,59 @@ function confirmBeforeDestructive(actionLabel) {
   });
 }
 
+/**
+ * Content license gate. Shown before every PR submission until the
+ * contributor ticks "不再提示" on this device.
+ * @returns {Promise<boolean>} true when the submission may continue.
+ */
+function confirmLicenseAgreement() {
+  if (hasAcceptedLicense()) return Promise.resolve(true);
+  const notices = licenseNotices();
+  return new Promise((resolve) => {
+    let settled = false;
+    let remember = false;
+    let modal = null;
+    const finish = (accepted) => {
+      if (settled) return;
+      settled = true;
+      if (accepted && remember) rememberLicense();
+      resolve(accepted);
+      modal?.close();
+    };
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="form-grid">
+        <div class="form-note is-warn">
+          <strong>${escapeHtml(notices.title)}</strong>
+          <p>${escapeHtml(notices.intro)}
+            <a href="${CC_LICENSE_URL}" target="_blank" rel="noopener">${CC_LICENSE_NAME}</a>
+          </p>
+          <ul class="form-help">
+            ${notices.points.map((point) => `<li>${escapeHtml(point)}</li>`).join('')}
+          </ul>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" id="license-remember">
+          <span>${escapeHtml(notices.remember)}</span>
+        </label>
+      </div>`;
+    body.querySelector('#license-remember').addEventListener('change', (event) => {
+      remember = event.target.checked;
+    });
+    modal = openModal({
+      title: '提交 PR 前请确认',
+      subtitle: CC_LICENSE_NAME,
+      body,
+      size: 'normal',
+      footer: [
+        { label: notices.cancel, className: 'btn-ghost', onClick: () => finish(false) },
+        { label: notices.accept, className: 'btn-primary', onClick: () => finish(true) },
+      ],
+      onClose: () => finish(false),
+    });
+  });
+}
+
 /** Apply a stored draft to the editor (no network access). */
 function restoreDraftIntoEditor(draft) {
   state.content.path = draft.path;
@@ -3937,6 +4005,7 @@ function currentPrDiff() {
 }
 
 async function openPrDialog({ prefill = null } = {}) {
+  if (!(await confirmLicenseAgreement())) return;
   await tokenReady;
   await flushFmChanges();
   if (!sessionToken) {
@@ -4160,6 +4229,11 @@ async function openPrDialog({ prefill = null } = {}) {
           onProgress: log,
         });
         log(`完成：PR #${result.number}`, 'ok');
+        const prLabel = prLabelOf(typeDefault);
+        await client
+          .addLabels(CONTENT_OWNER, CONTENT_REPO, result.number, [prLabel])
+          .then(() => log(`已添加标签「${prLabel}」`, 'ok'))
+          .catch((error) => log(`标签「${prLabel}」添加失败（可在 GitHub 上手动添加）：${error.message}`, 'err'));
         saveDraft(false);
         const success = document.createElement('div');
         success.className = 'pr-success';
@@ -4956,8 +5030,6 @@ async function openBatchDialog() {
             scanLinks: body.querySelector('#batch-scan-links').checked,
             scanScope: body.querySelector('#batch-scan-scope').value,
             repoPaths: index.paths,
-            modal,
-            logEl: body.querySelector('#batch-log'),
           });
         },
       },
@@ -4969,7 +5041,8 @@ async function openBatchDialog() {
 }
 
 /** Rename the selected pages, rewrite links and open one PR with every change. */
-async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repoPaths, modal, logEl }) {
+async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repoPaths }) {
+  if (!(await confirmLicenseAgreement())) return;
   if (!sessionToken) {
     toast('批量重命名需要 GitHub token，请先在设置中填写。', 'error');
     openSettings();
@@ -5005,8 +5078,18 @@ async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repo
   });
   if (!confirmed) return;
 
-  logEl.hidden = false;
-  logEl.innerHTML = '';
+  // Agreement / confirmation dialogs replace the batch dialog, so the
+  // submission gets its own progress window.
+  const progressBody = document.createElement('div');
+  progressBody.innerHTML = '<div class="progress-log" id="batch-log"></div>';
+  const progressModal = openModal({
+    title: '批量重命名',
+    subtitle: `${valid.length} 个页面`,
+    body: progressBody,
+    size: 'normal',
+    footer: [],
+  });
+  const logEl = progressBody.querySelector('#batch-log');
   const log = (message, kind = 'step') => {
     const line = document.createElement('div');
     line.className = kind;
@@ -5014,7 +5097,7 @@ async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repo
     logEl.appendChild(line);
     logEl.scrollTop = logEl.scrollHeight;
   };
-  modal.setBusy(true);
+  progressModal.setBusy(true);
 
   const renamedIds = valid.map((plan) => ({ fromId: pageIdOf(plan.from), toId: pageIdOf(plan.to) }));
   // Resolve short links exactly like Core before rewriting: a shared slug must
@@ -5094,7 +5177,7 @@ async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repo
   }
   if (!files.some((file) => file.deleted)) {
     log('未读取到待重命名页面的内容，已中止。', 'err');
-    modal.setBusy(false);
+    progressModal.setBusy(false);
     return;
   }
 
@@ -5159,8 +5242,12 @@ async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repo
       onProgress: log,
     });
     log(`完成：PR #${result.number}`, 'ok');
+    await client
+      .addLabels(CONTENT_OWNER, CONTENT_REPO, result.number, ['改进'])
+      .then(() => log('已添加标签「改进」', 'ok'))
+      .catch((error) => log(`标签「改进」添加失败（可在 GitHub 上手动添加）：${error.message}`, 'err'));
     rememberSessionPr(result);
-    modal.setBusy(false);
+    progressModal.setBusy(false);
     toast(
       coverage.complete
         ? `批量重命名已提交：PR #${result.number}`
@@ -5168,11 +5255,11 @@ async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repo
       coverage.complete ? 'success' : 'warn',
       coverage.complete ? 4600 : 8000,
     );
-    modal.close();
+    progressModal.close();
     openReviewDialog();
   } catch (error) {
     log(`失败：${error.message}`, 'err');
-    modal.setBusy(false);
+    progressModal.setBusy(false);
     toast(error.message || '批量重命名失败。', 'error');
   }
 }

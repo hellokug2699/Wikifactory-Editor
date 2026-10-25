@@ -12,6 +12,11 @@ export function prTypeOf(id) {
   return PR_TYPES.find((type) => type.id === id) || PR_TYPES[1];
 }
 
+/** Repository label applied after the PR is created (matches the template). */
+export function prLabelOf(type) {
+  return prTypeOf(type).id === 'new' ? '新增' : '改进';
+}
+
 /** Line diff between the content loaded from GitHub and the current editor state. */
 export function buildPrDiff({ before, after, loadedPath = '', path = '' }) {
   const ops = diffLines(before, after);
@@ -21,13 +26,15 @@ export function buildPrDiff({ before, after, loadedPath = '', path = '' }) {
   return { stats, rows, pathNote, empty: rows.length === 0 };
 }
 
-/** Text PR body generated on the editor side (no repository config). */
+/** Text PR body generated on the editor side (matches PULL_REQUEST_TEMPLATE.md). */
 export function buildPrBody({ type, note, path, assetPaths = [], summary = {}, diff = {} }) {
   const preset = prTypeOf(type);
   return [
     '## 变更类型',
     '',
-    `- [x] ${preset.label}`,
+    `- [x] ${prLabelOf(type)}`,
+    '',
+    `> 具体变更：${preset.label}`,
     '',
     '## 说明',
     '',
@@ -43,6 +50,11 @@ export function buildPrBody({ type, note, path, assetPaths = [], summary = {}, d
     `- [x] 编辑器检查：${summary.errors ?? 0} 错误，${summary.warnings ?? 0} 警告`,
     `- [x] 内容差异：+${diff.added ?? 0} / −${diff.removed ?? 0} 行`,
     '- [ ] 已在预览中确认排版',
+    '- [ ] 引用站外内容已注明来源与许可协议',
+    '',
+    '## 许可声明',
+    '',
+    '无（如包含站外内容，请改为：来源链接 · 原许可协议 · 是否允许再用）',
     '',
     '由 Wikifactory Editor 提交。Content 仓库不要求分支与 base 保持 up-to-date。',
   ].join('\n');

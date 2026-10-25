@@ -265,6 +265,16 @@ export class GitHubClient {
     return data;
   }
 
+  /** Add labels to an issue / pull request (labels must already exist). */
+  async addLabels(owner, repo, number, labels) {
+    assertContentRepo(repo);
+    const { data } = await this.request(`${repoBase(owner, repo)}/issues/${Number(number)}/labels`, {
+      method: 'POST',
+      body: { labels },
+    });
+    return Array.isArray(data) ? data : [];
+  }
+
   async findOpenPullRequest(owner, repo, head) {
     assertContentRepo(repo);
     const { data } = await this.request(`${repoBase(owner, repo)}/pulls?state=open&head=${encodeURIComponent(head)}`);

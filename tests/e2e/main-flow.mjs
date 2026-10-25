@@ -198,6 +198,9 @@ async function mockGitHub(page) {
       });
     }
     if (pathname.endsWith('/pulls')) return json([]);
+    if (/\/issues\/\d+\/labels$/.test(pathname) && method === 'POST') {
+      return json([{ name: '改进' }]);
+    }
     return json({ message: `unmocked ${method} ${pathname}` }, 404);
   });
 }
@@ -271,6 +274,15 @@ try {
   // 6. PR（mock）
   await page.click('#btn-pr');
   await page.waitForSelector('.modal-title');
+  // 首次提交前会显示内容许可确认窗口。
+  if (/提交 PR 前请确认/.test((await page.textContent('.modal-title')) || '')) {
+    await page.click('#license-remember');
+    await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('.modal-foot .btn')];
+      buttons.find((button) => button.textContent === '同意并继续')?.click();
+    });
+    await page.waitForTimeout(400);
+  }
   let title = await page.textContent('.modal-title');
   if (/token 权限/.test(title || '')) {
     await page.click('#pr-ack-continue');

@@ -6,6 +6,7 @@ import {
   buildPrDiff,
   defaultBranchName,
   prHeadline,
+  prLabelOf,
   prTypeOf,
   PR_TYPES,
   uniqueBranchSuggestion,
@@ -21,12 +22,15 @@ test('PR template includes required sections and the note', () => {
     diff: { added: 3, removed: 1 },
   });
   assert.ok(body.includes('## 变更类型'));
-  assert.ok(body.includes('- [x] 修复引用'));
+  assert.ok(body.includes('- [x] 改进'));
+  assert.ok(body.includes('具体变更：修复引用'));
   assert.ok(body.includes('修正 MAM 链接'));
   assert.ok(body.includes('`games/Satisfactory/Buildings/MAM.md`'));
   assert.ok(body.includes('mam.png'));
   assert.ok(body.includes('0 错误，2 警告'));
   assert.ok(body.includes('+3 / −1 行'));
+  assert.ok(body.includes('## 许可声明'));
+  assert.ok(body.includes('引用站外内容已注明来源与许可协议'));
   assert.ok(!body.includes('（待填写）'));
 });
 
@@ -35,6 +39,13 @@ test('PR type + headline helpers', () => {
   assert.equal(prTypeOf('nope').id, 'edit');
   assert.equal(prHeadline('new', 'MAM'), 'content: 新增 MAM');
   assert.equal(prHeadline('fix', 'MAM'), 'content: 修复引用 MAM');
+});
+
+test('repository labels match the template', () => {
+  assert.equal(prLabelOf('new'), '新增');
+  assert.equal(prLabelOf('edit'), '改进');
+  assert.equal(prLabelOf('fix'), '改进');
+  assert.equal(prLabelOf('unknown'), '改进');
 });
 
 test('branch names are deterministic for a given date', () => {

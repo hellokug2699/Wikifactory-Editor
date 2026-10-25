@@ -46,6 +46,7 @@ const CRITICAL = [
   './assets/js/i18n.js',
   './assets/js/icons.js',
   './assets/js/issues.js',
+  './assets/js/license-agreement.js',
   './assets/js/main.js',
   './assets/js/markdown.js',
   './assets/js/net-status.js',
@@ -119,7 +120,11 @@ async function networkOrShell(request) {
   try {
     return await fetch(request);
   } catch {
-    return (await caches.match(request, { cacheName: CACHE })) || (await caches.match('./index.html', { cacheName: CACHE })) || Response.error();
+    return (
+      (await caches.match(request, { cacheName: CACHE })) ||
+      (await caches.match('./index.html', { cacheName: CACHE })) ||
+      Response.error()
+    );
   }
 }
 
