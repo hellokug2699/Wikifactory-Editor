@@ -101,9 +101,15 @@ export function checkVersionFiles(root) {
     problems.push('updates/desktop.json 未同步');
   }
 
+  // README is a repository introduction only: the version history lives in
+  // CHANGELOG.md and README must link to it.
+  const changelog = readText(path.join(root, 'CHANGELOG.md'));
+  if (!changelog.includes(`## v${VERSION} `)) {
+    problems.push(`CHANGELOG 缺少 v${VERSION} 更新章节`);
+  }
   const readme = readText(path.join(root, 'README.md'));
-  if (!readme.includes(`## 下载（v${VERSION}）`)) problems.push(`README 下载章节不是 v${VERSION}`);
-  if (!readme.includes(`## v${VERSION} `)) problems.push(`README 缺少 v${VERSION} 更新章节`);
+  if (!readme.includes('CHANGELOG.md')) problems.push('README 未链接 CHANGELOG.md');
+  if (readme.includes(`## v${VERSION} `)) problems.push('README 不应包含版本更新章节（应写入 CHANGELOG.md）');
 
   return problems;
 }
