@@ -7,8 +7,10 @@
   },
   "editor": {
     "owner": "hellokug2699",
-    "repo": "Wikifactory-Editor"
+    "repo": "Wikifactory-Editor",
+    "issueUrl": "https://github.com/hellokug2699/Wikifactory-Editor/issues/new?template=new-page-tag.yml"
   },
+  "allowedOwners": ["hellokug2699"],
   "rules": {
     "reservedPaths": ["search", "pagefind", "_astro", "404", "about"],
     "maxUploadMb": 20

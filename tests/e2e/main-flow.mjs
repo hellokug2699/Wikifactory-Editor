@@ -14,6 +14,9 @@ import { chromium } from 'playwright-core';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const appDir = path.join(root, 'app');
+const editorConfig = JSON.parse(fs.readFileSync(path.join(root, 'editor-config.json'), 'utf8'));
+const OWNER = editorConfig.content.owner;
+const REPO = editorConfig.content.repo;
 const PAGE_PATH = 'games/Example/Guides/New-Page.md';
 
 function browserCacheRoots() {
@@ -158,7 +161,7 @@ async function mockGitHub(page) {
     if (pathname.endsWith('/git/commits') && method === 'POST') return json({ sha: sha('f') });
     if (pathname.includes('/git/refs/heads/') && method === 'PATCH') return json({});
     if (pathname.endsWith('/pulls') && method === 'POST') {
-      return json({ html_url: 'https://github.com/hellokug2699/Wikifactory-Content/pull/42', number: 42 });
+      return json({ html_url: `https://github.com/${OWNER}/${REPO}/pull/42`, number: 42 });
     }
     // Review panel: conflicting PR + one approval.
     if (/\/pulls\/42$/.test(pathname) && method === 'GET') {
@@ -174,7 +177,7 @@ async function mockGitHub(page) {
         changed_files: 1,
         additions: 3,
         deletions: 1,
-        head: { ref: 'wfe/e2e', repo: { owner: { login: 'hellokug2699' } } },
+        head: { ref: 'wfe/e2e', repo: { owner: { login: OWNER } } },
         base: { ref: 'main' },
       });
     }

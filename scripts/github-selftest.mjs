@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { GitHubClient } from '../app/assets/js/github.js';
+import { repoInfo } from './repo.mjs';
 
 let passed = 0;
 async function test(name, fn) {
@@ -13,10 +14,12 @@ async function test(name, fn) {
   }
 }
 
+const { contentRepo: REPO_NAME } = repoInfo();
+
 /** A tiny in-memory GitHub API. */
 function createMock({ writable, existingBranch = '' }) {
   const state = {
-    refs: new Map([['o/Wikifactory-Content@main', 'base-sha']]),
+    refs: new Map([[`o/${REPO_NAME}@main`, 'base-sha']]),
     commits: new Map([['base-sha', { tree: { sha: 'base-tree' } }]]),
     pulls: [],
     blobs: [],
@@ -41,15 +44,13 @@ function createMock({ writable, existingBranch = '' }) {
     const body = options.body ? JSON.parse(options.body) : null;
 
     if (path === '/user') return response(200, { login: 'contributor' }, { 'x-oauth-scopes': 'public_repo' });
-    if (path === '/repos/o/Wikifactory-Content')
-      return response(200, { default_branch: 'main', full_name: 'o/Wikifactory-Content' });
-    if (path === '/repos/contributor/Wikifactory-Content') {
-      if (!state.refs.has('contributor/Wikifactory-Content@main'))
-        state.refs.set('contributor/Wikifactory-Content@main', 'base-sha');
-      return response(200, { default_branch: 'main', full_name: 'contributor/Wikifactory-Content' });
+    if (path === `/repos/o/${REPO_NAME}`) return response(200, { default_branch: 'main', full_name: `o/${REPO_NAME}` });
+    if (path === `/repos/contributor/${REPO_NAME}`) {
+      if (!state.refs.has(`contributor/${REPO_NAME}@main`)) state.refs.set(`contributor/${REPO_NAME}@main`, 'base-sha');
+      return response(200, { default_branch: 'main', full_name: `contributor/${REPO_NAME}` });
     }
-    if (path === '/repos/o/Wikifactory-Content/forks' && method === 'POST')
-      return response(202, { full_name: 'contributor/Wikifactory-Content' });
+    if (path === `/repos/o/${REPO_NAME}/forks` && method === 'POST')
+      return response(202, { full_name: `contributor/${REPO_NAME}` });
 
     const refMatch = /^\/repos\/([^/]+)\/([^/]+)\/git\/ref\/heads\/(.+)$/.exec(path);
     if (refMatch && method === 'GET') {
@@ -112,7 +113,7 @@ function createMock({ writable, existingBranch = '' }) {
 
     if (/^\/repos\/([^/]+)\/([^/]+)\/pulls/.test(path) && method === 'POST') {
       const number = state.pulls.length + 1;
-      const pr = { number, html_url: `https://github.com/o/Wikifactory-Content/pull/${number}`, ...body };
+      const pr = { number, html_url: `https://github.com/o/${REPO_NAME}/pull/${number}`, ...body };
       state.pulls.push(pr);
       return response(201, pr);
     }
@@ -134,7 +135,7 @@ await test('direct branch PR (write access)', async () => {
   const client = new GitHubClient('token');
   const result = await client.submitPullRequest({
     owner: 'o',
-    repo: 'Wikifactory-Content',
+    repo: REPO_NAME,
     branchName: 'wfe/test',
     files: [
       { path: 'games/Game/Category/Page.md', text: '# hello' },
@@ -158,7 +159,7 @@ await test('fork PR fallback (no write access)', async () => {
   const client = new GitHubClient('token');
   const result = await client.submitPullRequest({
     owner: 'o',
-    repo: 'Wikifactory-Content',
+    repo: REPO_NAME,
     branchName: 'wfe/fork',
     files: [{ path: 'foo.yml', text: 'foo: Game' }],
     commitMessage: 'alias: test',
@@ -168,7 +169,7 @@ await test('fork PR fallback (no write access)', async () => {
   assert.equal(result.forkUsed, true);
   assert.equal(result.headOwner, 'contributor');
   assert.equal(state.pulls[0].head, 'contributor:wfe/fork');
-  assert.ok(state.refs.has('contributor/Wikifactory-Content@wfe/fork'));
+  assert.ok(state.refs.has(`contributor/${REPO_NAME}@wfe/fork`));
 });
 
 await test('branch conflict is reported without auto-renaming', async () => {
@@ -177,7 +178,7 @@ await test('branch conflict is reported without auto-renaming', async () => {
   await assert.rejects(
     client.submitPullRequest({
       owner: 'o',
-      repo: 'Wikifactory-Content',
+      repo: REPO_NAME,
       branchName: 'wfe/taken',
       files: [{ path: 'x.md', text: 'x' }],
       commitMessage: 'm',
@@ -191,8 +192,8 @@ await test('branch conflict is reported without auto-renaming', async () => {
 
 await test('rejects Core / Alias repositories', async () => {
   const client = new GitHubClient('token');
-  await assert.rejects(client.getRepo('o', 'Wikifactory-Core'), /仅允许操作 Wikifactory-Content/);
-  await assert.rejects(client.getRepo('o', 'Wikifactory-Alias'), /仅允许操作 Wikifactory-Content/);
+  await assert.rejects(client.getRepo('o', 'Wikifactory-Core'), new RegExp(`仅允许操作 ${REPO_NAME}`));
+  await assert.rejects(client.getRepo('o', 'Wikifactory-Alias'), new RegExp(`仅允许操作 ${REPO_NAME}`));
 });
 
 console.log(`\n${passed} tests passed.`);

@@ -67,6 +67,7 @@ import { mapWithConcurrency } from './async-pool.js';
 import { applyI18n, LANGS, setLang, t, tOr } from './i18n.js';
 import {
   activeConfig,
+  activeIssueUrl,
   activeMaxUploadMb,
   approvePendingConfig,
   dismissPendingConfig,
@@ -324,7 +325,8 @@ function scheduleFormSync() {
 /* ------------------------------------------------------------- frontmatter */
 
 function renderFmForm() {
-  const issueUrl = `${PAGE_TAG_ISSUE_URL}&title=${encodeURIComponent('新增页面分类：')}`;
+  const baseIssueUrl = activeIssueUrl() || PAGE_TAG_ISSUE_URL;
+  const issueUrl = `${baseIssueUrl}&title=${encodeURIComponent('新增页面分类：')}`;
   els.fmForm.innerHTML = fmFormHtml({ tags: PAGE_TAGS, issueUrl });
   els.fmForm.append(
     h`<div class="fm-apply-bar" id="fm-apply-bar" hidden>
@@ -4202,6 +4204,8 @@ function updateRepoScope() {
     }${pendingBlock}`;
   }
   els.statRepo.textContent = scope;
+  const scopeLabel = $('#repo-scope-label');
+  if (scopeLabel) scopeLabel.textContent = scope;
   if (pending) {
     toast(t('cfg.pendingToast'), 'info', 6200);
   } else if (config.source === 'remote' && !config.verified) {

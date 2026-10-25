@@ -36,6 +36,20 @@ export function configProblems(config, { allowedOwners = ALLOWED_OWNERS } = {}) 
   if (!OWNER_RE.test(String(editor.owner || ''))) problems.push('editor.owner 不合法');
   else if (!allowedOwners.includes(editor.owner)) problems.push('editor.owner 不在白名单');
   if (!REPO_RE.test(String(editor.repo || ''))) problems.push('editor.repo 不合法');
+  if (editor.issueUrl !== undefined) {
+    if (typeof editor.issueUrl !== 'string' || !/^https:\/\/github\.com\//.test(editor.issueUrl)) {
+      problems.push('editor.issueUrl 必须是 https://github.com/… 链接');
+    } else if (!editor.issueUrl.startsWith(`https://github.com/${editor.owner}/${editor.repo}/`)) {
+      problems.push('editor.issueUrl 必须指向 editor 仓库');
+    }
+  }
+  if (config.allowedOwners !== undefined) {
+    if (!Array.isArray(config.allowedOwners) || config.allowedOwners.length === 0) {
+      problems.push('allowedOwners 必须是非空数组');
+    } else if (config.allowedOwners.some((owner) => !OWNER_RE.test(String(owner)))) {
+      problems.push('allowedOwners 含不合法的 owner 名');
+    }
+  }
   if (config.rules !== undefined) {
     const rules = config.rules;
     if (!rules || typeof rules !== 'object') problems.push('rules 必须是对象');
@@ -53,7 +67,9 @@ export function configProblems(config, { allowedOwners = ALLOWED_OWNERS } = {}) 
     }
   }
   for (const key of Object.keys(config)) {
-    if (!['version', 'content', 'editor', 'rules'].includes(key)) problems.push(`未知字段「${key}」`);
+    if (!['version', 'content', 'editor', 'allowedOwners', 'rules'].includes(key)) {
+      problems.push(`未知字段「${key}」`);
+    }
   }
   return problems;
 }
@@ -83,6 +99,12 @@ export function activeConfig() {
 
 export function defaultConfig() {
   return DEFAULT_CONFIG;
+}
+
+/** Issue URL for new page tags; falls back to the shared rules constant. */
+export function activeIssueUrl() {
+  const url = active.config?.editor?.issueUrl;
+  return typeof url === 'string' && url ? url : '';
 }
 
 /** Upload ceiling from the active config (defaults to 20 MB). */

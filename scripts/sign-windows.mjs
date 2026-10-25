@@ -19,6 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { githubUrl, REPO } from './repo.mjs';
 
 const args = process.argv.slice(2);
 const verifyOnly = args[0] === '--verify';
@@ -101,7 +102,7 @@ try {
       '-n',
       process.env.WINDOWS_SIGNING_NAME || 'Wikifactory Editor',
       '-i',
-      'https://github.com/hellokug2699/Wikifactory-Editor',
+      githubUrl(REPO.editorOwner, REPO.editorRepo),
       '-h',
       'sha256',
       '-in',

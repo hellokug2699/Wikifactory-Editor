@@ -1,6 +1,6 @@
 {
   "name": "wikifactory-editor",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "private": true,
   "description": "Wikifactory Content contributor editor with syntax highlighting and client-side GitHub PR flow.",
   "type": "module",
@@ -26,7 +26,8 @@
     "version:check": "node scripts/version.mjs --check",
     "version:sync": "node scripts/version.mjs --sync",
     "config:check": "node scripts/editor-config.mjs --check",
-    "config:sync": "node scripts/editor-config.mjs --sync"
+    "config:sync": "node scripts/editor-config.mjs --sync",
+    "repo:audit": "node scripts/repo-audit.mjs"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.4",

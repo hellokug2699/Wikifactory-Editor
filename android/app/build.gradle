@@ -4,8 +4,8 @@ plugins {
 
 // Injected by scripts/version.mjs through Gradle properties; the inline values
 // are only a fallback so Android Studio can open the project without env vars.
-def appVersionName = project.findProperty('appVersionName') ?: '1.2.6'
-def appVersionCode = (project.findProperty('appVersionCode') ?: '10206').toInteger()
+def appVersionName = project.findProperty('appVersionName') ?: '1.2.7'
+def appVersionCode = (project.findProperty('appVersionCode') ?: '10207').toInteger()
 
 android {
     namespace 'top.wikifactory.editor'

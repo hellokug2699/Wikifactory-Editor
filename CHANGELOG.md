@@ -2,6 +2,20 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 3 个版本的摘要。
 
+## v1.2.4 质量更新
+
+- **拆分 main.js**：抽出 `dom.js`（`h()` 模板函数，默认转义）、`pr.js`（PR 模板 / 分支名 / diff 数据）、`repo-cache.js`（离线文件树缓存）、`issues.js`（问题分组与行内诊断映射）、`toolbar.js`、`frontmatter-form.js`；`main.js` 只保留 UI 编排，新增逻辑可以直接写单测。
+- **YAML 真解析器**：frontmatter 改用 `yaml` 包（esbuild 打包为 `vendor/yaml.bundle.js`），保留注释、块标量与未知字段；`tags` 仍以 `[攻略, 建筑]` 形式写回。
+- **表单显式应用**：编辑表单不再 300 ms 自动覆盖 YAML，而是显示「待应用：标题 / 分类…」工具条；点「应用更改」后先展示 frontmatter diff 再写入，也可一键放弃。保存草稿 / 预览 / 提交 PR 时会自动应用，避免遗漏。
+- **版本单一来源**：新增 `scripts/version.mjs`（`npm run version:check / version:sync`），统一生成 `app/assets/js/version.js`，并校验 `package.json`、`package-lock.json`、`desktop/neutralino.config.json`、`build.gradle`、`updates/desktop.json` 与 README；Android `versionCode` 由版本号推导（major×10000 + minor×100 + patch），CI 构建时通过 Gradle 属性注入。因此 `versionCode` 从 v1.2.3 手写的 `15` 变成 v1.2.4 的 `10204`：这是一次性的编号规则切换，不是多发了版本；`10204 > 15`，已安装用户仍可覆盖升级，之后 1.2.5 = 10205、1.3.0 = 10300 单调递增。限制是次版本与补丁号需 < 100（`1.2.100` 会与 `1.3.0` 同为 10300）。
+- **分发重做**：交付产物移出 git（`dist/` 已加入 `.gitignore`，只发布到 Releases + Actions artifact）。
+- **自动更新**：设置新增「更新方式」0 自动下载 / 1 提示 / 2 不检查，更新窗口支持「不再显示此窗口」。桌面端通过 Neutralino `updater` 下载 `resources.neu`，重启生效；Android 打开签名 APK 下载地址（需允许安装未知来源）；网页版刷新 Service Worker 缓存。
+- **Web PWA**：新增 `manifest.webmanifest` 与 `sw.js`，支持安装到桌面 / 主屏与离线打开；不再依赖 `serve.mjs`，用任意静态服务器托管即可（需 https 或 localhost）。
+- **测试升级**：`happy-dom` + `node:test` 覆盖 `h()`、frontmatter 表单、工具栏、PR 模板、仓库缓存与问题映射；`setYamlField` 增加 60 组 property-based roundtrip（保证未知字段 / 注释 / 块标量不丢）；Playwright 主链路（加载 → 编辑 → 检查 → 预览 → PR mock）见 `npm run test:e2e`。
+- 版本号：**1.2.4**（Android versionCode 10204）。
+
+> 更早的版本记录（v1.1.1 – v1.2.3）已移至 [CHANGELOG.md](CHANGELOG.md)，避免 README 过长。
+
 ## v1.2.3 功能修复
 
 - **修复桌面端 exe 无法启动**：Windows 分发改为 **便携 ZIP（`Wikifactory-Editor.exe` + `resources.neu`）**，不再把资源附加到 PE 尾部。旧方案把约 1.2 MB 资源嵌入 exe，容易被杀毒软件当作自解压壳拦截，也让部分机器无法加载资源。`resources.neu` 采用 Neutralinojs 官方默认的资源加载方式，已在同源构建上验证可正常启动并返回页面。

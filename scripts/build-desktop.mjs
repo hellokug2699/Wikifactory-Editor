@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './version.mjs';
+import { githubUrl, REPO } from './repo.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const desktopDir = path.join(root, 'desktop');
@@ -114,7 +115,7 @@ fs.writeFileSync(
       ? '本 exe 使用 Wikifactory Editor 自签名证书签名；签名可在「文件属性 → 数字签名」中查看。'
       : '本 exe 未签名，Windows 可能显示 SmartScreen 警告。',
     '',
-    'https://github.com/hellokug2699/Wikifactory-Editor',
+    githubUrl(REPO.editorOwner, REPO.editorRepo),
   ].join('\r\n'),
   'utf8',
 );

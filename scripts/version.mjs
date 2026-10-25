@@ -8,8 +8,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releaseAssetUrl } from './repo.mjs';
 
-export const VERSION = '1.2.6';
+export const VERSION = '1.2.7';
 export const APPLICATION_ID = 'top.wikifactory.editor';
 
 /** Deterministic versionCode: major*10000 + minor*100 + patch (CI passes it to Gradle). */
@@ -36,7 +37,7 @@ export function desktopManifestSource(version = VERSION) {
     {
       applicationId: APPLICATION_ID,
       version,
-      resourcesURL: `https://github.com/hellokug2699/Wikifactory-Editor/releases/download/v${version}/Wikifactory-Editor-v${version}-windows-x64-resources.neu`,
+      resourcesURL: releaseAssetUrl(version, `Wikifactory-Editor-v${version}-windows-x64-resources.neu`),
     },
     null,
     2,
