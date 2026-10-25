@@ -31,7 +31,10 @@
 
       <div class="mode-tabs" aria-label="编辑范围">
         <div class="mode-tab is-active">
-          <span class="mode-dot mode-dot-content"></span>Content
+          <button class="net-light" type="button" id="net-light-local" data-state="unknown"
+                  aria-label="网络状态" title="网络：检测中"><span class="net-light-dot"></span></button>
+          <button class="net-light" type="button" id="net-light-github" data-state="unknown"
+                  aria-label="GitHub 连接" title="GitHub：检测中"><span class="net-light-dot"></span></button>Content
           <small>页面编辑</small>
         </div>
       </div>
@@ -113,7 +116,7 @@
             <div class="panel-section">
               <div class="section-title"><span>编辑范围</span></div>
               <div class="form-note" id="repo-scope-note">
-                仅可读取与修改 <code id="repo-scope-label">（读取 editor-config.json…）</code>。Core / Alias 仓库不在本编辑器的访问范围内。
+                已连接 <code id="repo-scope-label">（读取 editor-config.json…）</code>。
               </div>
             </div>
           </section>

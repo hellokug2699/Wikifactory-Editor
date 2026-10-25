@@ -48,6 +48,7 @@ import {
   validateWithRepo,
 } from './validate.js';
 import { GitHubClient, GitHubError } from './github.js';
+import { NET, localNetworkState, onGithubUnreachable, probeGithub } from './net-status.js';
 import { clearToken, loadToken, saveToken, tokenStorageKind, tokenStoreUnreadable } from './secure-token.js';
 import { buildPreview, attachToc } from './markdown.js';
 import { diffLines } from './diff.js';
@@ -143,6 +144,8 @@ const els = {
   connectionPill: $('#btn-connection'),
   connectionDot: $('#connection-dot'),
   connectionLabel: $('#connection-label'),
+  netLocal: $('#net-light-local'),
+  netGithub: $('#net-light-github'),
 };
 
 const state = loadState();
@@ -239,6 +242,72 @@ function setConnection(ok, label, message, scopes = '') {
   els.connectionPill.classList.toggle('is-error', !ok && !!sessionToken);
   els.connectionLabel.textContent = label;
   els.connectionPill.title = message;
+}
+
+/* ------------------------------------------------------------- net lights */
+
+let githubProbeRunning = false;
+let lastGithubProbeAt = 0;
+let lastGithubResult = null;
+
+function paintNetLight(element, state, title) {
+  if (!element) return;
+  element.dataset.state = state;
+  element.setAttribute('aria-label', title);
+  element.title = title;
+}
+
+/** Local connectivity: Android's ConnectivityManager when available, else navigator.onLine. */
+function refreshLocalLight() {
+  const state = localNetworkState();
+  paintNetLight(
+    els.netLocal,
+    state,
+    state === NET.OK ? t('net.localOk') : state === NET.DOWN ? t('net.localDown') : t('net.localUnknown'),
+  );
+  return state;
+}
+
+/**
+ * Re-probe GitHub. The light reports reachability, so a failed API call asks
+ * for a check instead of assuming the connection is down.
+ */
+async function refreshGithubLight({ quiet = true } = {}) {
+  if (githubProbeRunning) return null;
+  githubProbeRunning = true;
+  lastGithubProbeAt = Date.now();
+  paintNetLight(els.netGithub, NET.CHECKING, t('net.githubChecking'));
+  let result;
+  try {
+    result = await probeGithub();
+  } finally {
+    githubProbeRunning = false;
+  }
+  lastGithubResult = result;
+  paintNetLight(
+    els.netGithub,
+    result.state,
+    result.state === NET.OK ? t('net.githubOk', { ms: result.latency }) : t('net.githubDown'),
+  );
+  if (!quiet && result.state !== NET.OK) {
+    toast(t('net.githubOfflineToast'), 'warn', 5200);
+  }
+  return result;
+}
+
+/** Re-render labels after a language switch; no probing. */
+function renderNetLights() {
+  refreshLocalLight();
+  const state = lastGithubResult?.state || NET.UNKNOWN;
+  paintNetLight(
+    els.netGithub,
+    state,
+    state === NET.OK
+      ? t('net.githubOk', { ms: lastGithubResult.latency })
+      : state === NET.DOWN
+        ? t('net.githubDown')
+        : t('net.githubIdle'),
+  );
 }
 
 function markDirty() {
@@ -2744,11 +2813,10 @@ function openSettings() {
   body.innerHTML = `
     <div class="form-grid">
       <div class="form-note is-accent">
-        <strong>仅客户端，且仅限 Content。</strong> token 默认<strong>不保存</strong>；勾选「记住 token」后会<strong>加密</strong>保存在本机：
-        Android 使用系统 Keystore（密钥不可导出），网页版与桌面版使用 AES-256-GCM 设备绑定密钥。
+        <strong>仅客户端。</strong> token 默认<strong>不保存</strong>；勾选「记住 token」后会<strong>加密</strong>保存在本机：
+        Android 使用系统 Keystore（密钥不可导出），网页版与桌面版使用由本机安装标识派生的 AES-256-GCM 密钥。
         关闭该选项则 token 只留在内存，重启后失效。
         输入框禁止复制 / 剪切，但<strong>允许粘贴</strong>。
-        编辑器被硬编码为只能访问 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code>，不会读写 Core / Alias。
       </div>
 
       <details class="token-guide">
@@ -2955,7 +3023,7 @@ function openSettings() {
 
   const modal = openModal({
     title: '设置与 GitHub 连接',
-    subtitle: 'token 加密保存在本机；提交时直接创建 Content 仓库 PR',
+    subtitle: 'token 加密保存在本机；提交时直接创建 PR',
     body,
     size: 'wide',
     footer: [
@@ -2976,6 +3044,7 @@ function openSettings() {
           renderToolbar();
           renderQueueBadge();
           renderPrBadge();
+          renderNetLights();
           updateRepoScope();
           state.settings.exitBehavior = body.querySelector('#set-exit-behavior').value;
           const statusBarInput = body.querySelector('#set-hide-statusbar');
@@ -3744,9 +3813,6 @@ function openHelp() {
   const body = `
     <div class="form-grid" style="font-size:13px;line-height:1.75">
       <div class="form-note is-accent">
-        <strong>仅编辑 Content。</strong> 目标仓库固定为 <code>${CONTENT_OWNER}/${CONTENT_REPO}</code>；程序不会读写 Core / Alias。
-      </div>
-      <div class="form-note is-accent">
         <strong>语法高亮。</strong> 正文使用 Markdown / GFM 高亮，并额外高亮 <code>[[File/…]]</code>、<code>[[…]]</code>、<code>[icon=…]</code>、<code>:::</code> 横幅、表格行与单元格颜色；元数据 YAML 标签使用 YAML 高亮；围栏代码块支持 JS/TS、JSON、CSS、HTML、YAML。
       </div>
       <div>
@@ -4318,7 +4384,7 @@ function updateRepoScope() {
           </div>
         </div>`
       : '';
-    note.innerHTML = `仅可读取与修改 <code>${escapeHtml(scope)}</code>。Core / Alias 仓库不在本编辑器的访问范围内。${
+    note.innerHTML = `已连接 <code>${escapeHtml(scope)}</code>。${
       config.source === 'remote' ? `<br>仓库地址来自 <code>editor-config.json</code>${escapeHtml(trustText)}。` : ''
     }${pendingBlock}`;
   }
@@ -5087,6 +5153,25 @@ function bindEvents() {
   $('#btn-pr').addEventListener('click', () => openPrDialog());
   $('#btn-settings').addEventListener('click', openSettings);
   $('#btn-connection').addEventListener('click', openSettings);
+
+  // Header lights: both are checked at boot; GitHub can be re-checked on click.
+  els.netLocal?.addEventListener('click', () => refreshLocalLight());
+  els.netGithub?.addEventListener('click', () => refreshGithubLight({ quiet: false }));
+  window.addEventListener('online', () => {
+    refreshLocalLight();
+    refreshGithubLight({ quiet: true });
+  });
+  window.addEventListener('offline', () => {
+    refreshLocalLight();
+    refreshGithubLight({ quiet: true });
+  });
+  // The Android bridge is authoritative and not event-driven: poll it cheaply.
+  setInterval(() => refreshLocalLight(), 15000);
+  // A failed GitHub call asks for a fresh probe instead of painting the light red.
+  onGithubUnreachable(() => {
+    if (Date.now() - lastGithubProbeAt > 4000) refreshGithubLight({ quiet: true });
+  });
+
   $('#btn-help').addEventListener('click', openHelp);
   $('#btn-theme').addEventListener('click', () => {
     state.theme = nextTheme(state.theme);
@@ -5411,6 +5496,9 @@ async function boot() {
   registerServiceWorker();
   renderQueueBadge();
   renderPrBadge();
+  // Both header lights are checked on startup; GitHub also re-checks on demand.
+  refreshLocalLight();
+  void refreshGithubLight({ quiet: true });
   await loadEditorConfig();
   if (activeConfig().source === 'remote') repoIndex = null;
   updateRepoScope();

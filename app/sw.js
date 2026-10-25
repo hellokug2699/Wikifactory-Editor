@@ -48,6 +48,7 @@ const CRITICAL = [
   './assets/js/issues.js',
   './assets/js/main.js',
   './assets/js/markdown.js',
+  './assets/js/net-status.js',
   './assets/js/pr.js',
   './assets/js/repo-cache.js',
   './assets/js/review.js',

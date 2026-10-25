@@ -8,6 +8,9 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
 import android.graphics.drawable.ColorDrawable;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -191,6 +194,19 @@ public class MainActivity extends Activity {
                     applyImmersive(hide);
                 });
                 return "true";
+            }
+
+            /** Header network light: whether the system currently has Internet access. */
+            @JavascriptInterface
+            public boolean isNetworkAvailable() {
+                ConnectivityManager manager =
+                        (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (manager == null) return false;
+                Network network = manager.getActiveNetwork();
+                if (network == null) return false;
+                NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+                return capabilities != null
+                        && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
             }
         }, "AndroidEditor");
 

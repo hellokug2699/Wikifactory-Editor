@@ -1,6 +1,6 @@
 {
   "name": "wikifactory-editor",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "description": "Wikifactory Content contributor editor with syntax highlighting and client-side GitHub PR flow.",
   "type": "module",

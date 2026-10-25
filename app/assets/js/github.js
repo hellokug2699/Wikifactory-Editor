@@ -1,6 +1,7 @@
 /** Client-side GitHub REST API (no backend, token stays on this device). */
 
 import { base64ToUtf8, CONTENT_REPO, utf8ToBase64 } from './state.js';
+import { notifyGithubUnreachable } from './net-status.js';
 import { resumableEntry, submitJournal } from './submit-journal.js';
 
 const API = 'https://api.github.com';
@@ -72,6 +73,9 @@ export class GitHubClient {
       });
     } catch (error) {
       clearTimeout(timer);
+      // Let the header light re-check whether GitHub is actually reachable
+      // instead of turning red from a single failed call.
+      notifyGithubUnreachable(error);
       const aborted = error?.name === 'AbortError';
       throw new GitHubError(
         aborted
@@ -93,6 +97,7 @@ export class GitHubClient {
     }
 
     if (!response.ok) {
+      if (response.status >= 500) notifyGithubUnreachable({ status: response.status });
       let message = data?.message || `GitHub API 返回 ${response.status}`;
       if (response.status === 401) message = 'token 无效或已过期（401），请在设置中重新填写。';
       else if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {

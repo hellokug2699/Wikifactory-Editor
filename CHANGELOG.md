@@ -2,6 +2,13 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 3 个版本的摘要。
 
+## v1.3.1 功能更新
+
+- **顶部两枚网络状态灯**：A 灯读取系统网络状态（Android 走原生 `ConnectivityManager.isNetworkAvailable()`，其他平台用 `navigator.onLine`，另加 online/offline 事件与 15 秒轮询）；B 灯实际探测 `api.github.com/rate_limit`，收到 < 500 的响应即视为可达。B 灯替换「Content」前的静态圆点，点击可重新检测；GitHub 请求网络失败或 5xx 时自动重测，而不是直接判红。
+- **移除「仅 Content 编辑」提示**：侧栏、设置与帮助中不再出现 Core / Alias 相关说明；仓库访问限制仍保留在网络层作为内部保护。
+- **Android**：新增 `isNetworkAvailable()` 桥接方法与 `ACCESS_NETWORK_STATE` 权限。
+- 版本号：**1.3.1**（Android versionCode 10301）。
+
 ## v1.3.0 质量更新
 
 - **重命名按 Core 规则解析短链接**：`rewritePageLinks()` 不再只比较文件名。先按 Core `resolveWikiTarget` 的优先级（完整 id → 游戏 → 分类 → 当前游戏内唯一 slug → 全局唯一 → 别名）确定目标，再决定是否改写；歧义短链接保留原样并在日志、PR 说明中列出候选页面。
@@ -10,6 +17,26 @@
 - **Token 密钥稳定化**：密钥派生只用安装标识 + 固定盐，不再混入语言、屏幕、时区、UA；旧记录兼容读取并自动升级；无法解密时保留记录并提示重新授权，不再静默删除。
 - **PR 提交断点续传**：新增提交日志（分支 + 阶段）。网络中断后可用「继续未完成提交」复用分支、跳过已完成提交、避免重复 PR。
 - 版本号：**1.3.0**（Android versionCode 10300）。
+
+## v1.2.7 安全更新
+
+- **owner / repo 单一来源**：新增 [`scripts/repo.mjs`](scripts/repo.mjs)，构建脚本与运行时所需的 owner、仓库名、Issue 链接全部来自 `editor-config.json`。原先散落在 `version.mjs`、`build-desktop.mjs`、`sign-windows.mjs`、`editor-config.mjs` 里的 `hellokug2699` 字面量已移除；运行时代码中不再出现 owner。新增可选字段 `allowedOwners`（提前授权新组织）与 `editor.issueUrl`（校验必须指向 editor 仓库）。
+- **迁移不再牵一发动全身**：迁移只改 `editor-config.json` → `npm run config:sync` → `npm run version:sync`。
+- **迁移审计**：新增 `npm run repo:audit`（`--strict` 可在仍有硬编码 owner 时失败）。
+- **恢复历史 APK**：v1.1.0 – v1.1.8 的 Release 已补回 debug 签名测试包（debug keystore 与正式签名不同，不能覆盖升级）；v1.1.9 起仍由 CI 构建签名 APK。
+- **签名证书轮换**：Windows Authenticode 自签名证书更新为 `F4:EC:FB:EA:…:4C:4C:49`（10 年期）；CI secrets `WINDOWS_SIGNING_P12_BASE64` / `WINDOWS_SIGNING_PASSWORD`。
+- **测试**：新增 `tests/repo.test.mjs`；e2e 的 GitHub mock 改为读取 `editor-config.json`。
+
+### 迁移清单（owner / repo 变更时）
+
+| 位置 | 需要做什么 |
+| --- | --- |
+| `editor-config.json` | 改 `content.owner` / `content.repo` / `editor.owner` / `editor.repo` / `editor.issueUrl`，可选 `allowedOwners` |
+| 生成文件 | `npm run config:sync`、`npm run config:sign`、`npm run version:sync` |
+| 配置签名私钥 | `config-signing-key.pem` 放在私有 Core 仓库的 `signing/`；丢失后重新 `config:keygen` 并重签 |
+| Android 签名 | CI secrets `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` |
+| Windows 签名 | CI secrets `WINDOWS_SIGNING_P12_BASE64` / `WINDOWS_SIGNING_PASSWORD` |
+| Core `public/.well-known/assetlinks.json` | 包名不变则无需改；换 keystore 才需要更新指纹 |
 
 ## v1.2.5 质量更新
 

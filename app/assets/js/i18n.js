@@ -53,6 +53,15 @@ const ZH = {
   'preview.theme': '切换预览主题',
   'preview.toc': '本页目录',
 
+  'net.localOk': '网络可用（来自系统）',
+  'net.localDown': '网络不可用（来自系统）',
+  'net.localUnknown': '网络状态未知',
+  'net.githubIdle': 'GitHub：尚未检测，点击检测',
+  'net.githubChecking': 'GitHub：检测中…',
+  'net.githubOk': 'GitHub：连接正常（{ms} ms），点击重新检测',
+  'net.githubDown': 'GitHub：无法连接，点击重新检测',
+  'net.githubOfflineToast': '无法连接 GitHub。已重新检测连接状态；网络恢复后可直接重试。',
+
   'tb.history': '历史',
   'tb.format': '格式',
   'tb.wiki': 'Wiki',
@@ -95,7 +104,7 @@ const ZH = {
   'tb.previewTitle': '生成预览页面 (Ctrl+Enter)',
 
   'set.title': '设置与 GitHub 连接',
-  'set.subtitle': 'token 加密保存在本机；提交时直接创建 Content 仓库 PR',
+  'set.subtitle': 'token 加密保存在本机；提交时直接创建 PR',
   'set.token': 'GitHub Token',
   'set.remember': '记住 token（加密保存在本机，下次启动自动恢复）',
   'set.clearToken': '清除 token（内存与已保存）',
@@ -229,6 +238,15 @@ const EN = {
   'preview.theme': 'Toggle preview theme',
   'preview.toc': 'On this page',
 
+  'net.localOk': 'Network available (system)',
+  'net.localDown': 'Network unavailable (system)',
+  'net.localUnknown': 'Network state unknown',
+  'net.githubIdle': 'GitHub: not checked yet, click to check',
+  'net.githubChecking': 'GitHub: checking…',
+  'net.githubOk': 'GitHub: connected ({ms} ms), click to re-check',
+  'net.githubDown': 'GitHub: unreachable, click to re-check',
+  'net.githubOfflineToast': 'Cannot reach GitHub. The connection was re-checked; retry once the network is back.',
+
   'tb.history': 'History',
   'tb.format': 'Format',
   'tb.wiki': 'Wiki',
@@ -271,7 +289,7 @@ const EN = {
   'tb.previewTitle': 'Render preview (Ctrl+Enter)',
 
   'set.title': 'Settings and GitHub connection',
-  'set.subtitle': 'The token is encrypted on this device; PRs go straight to the Content repo',
+  'set.subtitle': 'The token is encrypted on this device; submissions create a PR directly',
   'set.token': 'GitHub token',
   'set.remember': 'Remember token (encrypted on this device, restored on launch)',
   'set.clearToken': 'Clear token (memory and saved copy)',
