@@ -70,12 +70,13 @@ await check('install id is stored separately', () => {
   const install = memory.get('wikifactory-editor:install-id:v1');
   assert.ok(install && install !== TOKEN);
 });
-await check('tampered ciphertext is rejected and removed', async () => {
+await check('tampered ciphertext is rejected but kept for inspection', async () => {
   const record = JSON.parse(raw);
   record.data = `${record.data.slice(0, 8)}AAAA${record.data.slice(12)}`;
   memory.set(STORE_KEY, JSON.stringify(record));
   assert.equal(await loadToken(), null);
-  assert.equal(memory.has(STORE_KEY), false);
+  assert.equal(memory.has(STORE_KEY), true);
+  assert.equal(memory.get('wikifactory-editor:token:v1:unreadable'), '1');
 });
 await check('clear removes the encrypted record', async () => {
   await saveToken(TOKEN, { login: 'tester' });

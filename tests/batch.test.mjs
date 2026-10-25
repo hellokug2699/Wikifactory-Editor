@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildLinkIndex,
   linkScanTargets,
   pageIdOf,
   planRename,
   renamePagePath,
   renameSummary,
   rewritePageLinks,
+  scanCoverage,
 } from '../app/assets/js/batch.js';
 
 test('page ids and rename targets', () => {
@@ -65,6 +67,8 @@ test('internal links are rewritten in every supported form', () => {
   const result = rewritePageLinks(body, {
     fromId: 'Example/Guides/Old-Page',
     toId: 'Example/Guides/New-Page',
+    currentGameId: 'Example',
+    index: buildLinkIndex({ repoPaths: ['games/Example/Guides/Old-Page.md'] }),
   });
   assert.equal(result.replacements, 3);
   assert.ok(result.text.includes('[[Example/Guides/New-Page]]'));
@@ -107,4 +111,82 @@ test('link scan targets stay inside the affected game folders', () => {
     'games/A/C/two.md',
     'games/Z/Y/other.md',
   ]);
+});
+
+test('scan scope can cover every page instead of one game folder', () => {
+  const repoPaths = ['games/A/B/one.md', 'games/Z/Y/other.md', 'games/A/assets/x.png'];
+  assert.deepEqual(linkScanTargets({ renamedIds: ['A/B/one'], repoPaths, scope: 'all' }), [
+    'games/A/B/one.md',
+    'games/Z/Y/other.md',
+  ]);
+});
+
+test('short links are resolved like Core before renaming', () => {
+  // Two pages share the slug "Mining" inside EVE: a short link is ambiguous.
+  const repoPaths = ['games/EVE/Ships/Mining.md', 'games/EVE/Guides/Mining.md'];
+  const index = buildLinkIndex({ repoPaths });
+  const result = rewritePageLinks('见 [[Mining]] 与 [[EVE/Ships/Mining]]。', {
+    fromId: 'EVE/Ships/Mining',
+    toId: 'EVE/Ships/Mining-Ships',
+    currentGameId: 'EVE',
+    index,
+  });
+  assert.equal(result.replacements, 1);
+  assert.ok(result.text.includes('[[EVE/Ships/Mining-Ships]]'));
+  assert.ok(result.text.includes('[[Mining]]'));
+  assert.equal(result.unresolved.length, 1);
+  assert.equal(result.unresolved[0].target, 'Mining');
+  assert.deepEqual(result.unresolved[0].candidates.sort(), ['EVE/Guides/Mining', 'EVE/Ships/Mining']);
+});
+
+test('cross-game short links resolve to their own game and stay untouched', () => {
+  const repoPaths = ['games/EVE/Ships/Mining.md', 'games/Other/Guides/Mining.md'];
+  const index = buildLinkIndex({ repoPaths });
+  const options = { fromId: 'EVE/Ships/Mining', toId: 'EVE/Ships/Ore', index };
+
+  const sameGame = rewritePageLinks('[[Mining]]', { ...options, currentGameId: 'EVE' });
+  assert.equal(sameGame.replacements, 1);
+  assert.equal(sameGame.text, '[[Ore]]');
+
+  const otherGame = rewritePageLinks('[[Mining]]', { ...options, currentGameId: 'Other' });
+  assert.equal(otherGame.replacements, 0);
+  assert.equal(otherGame.text, '[[Mining]]');
+});
+
+test('games and categories shadow short page links', () => {
+  const repoPaths = ['games/EVE/Ships/Mining.md', 'games/EVE/Mining/Y.md'];
+  const index = buildLinkIndex({ repoPaths });
+  // Inside EVE, [[Mining]] is the category EVE/Mining, not the page slug.
+  const result = rewritePageLinks('[[Mining]]', {
+    fromId: 'EVE/Ships/Mining',
+    toId: 'EVE/Ships/Ore',
+    currentGameId: 'EVE',
+    index,
+  });
+  assert.equal(result.replacements, 0);
+});
+
+test('without an index only full page ids are rewritten', () => {
+  const result = rewritePageLinks('[[Old]] [[A/B/Old]]', { fromId: 'A/B/Old', toId: 'A/B/New' });
+  assert.equal(result.replacements, 1);
+  assert.equal(result.text, '[[Old]] [[A/B/New]]');
+});
+
+test('coverage distinguishes a complete scan from a partial one', () => {
+  assert.equal(scanCoverage({ scope: 'all' }).status, 'complete');
+  const partial = scanCoverage({
+    scope: 'game',
+    planned: 10,
+    scanned: 8,
+    failed: ['games/X/1.md'],
+    truncated: 1,
+    unresolved: [{ target: 'Mining', candidates: ['A/B/Mining', 'A/C/Mining'] }],
+  });
+  assert.equal(partial.status, 'partial');
+  assert.equal(partial.complete, false);
+  assert.equal(partial.problems.length, 4);
+  assert.match(partial.problems[0], /跨游戏/);
+  assert.match(partial.problems[1], /上限/);
+  assert.match(partial.problems[2], /读取失败/);
+  assert.match(partial.problems[3], /短链接/);
 });

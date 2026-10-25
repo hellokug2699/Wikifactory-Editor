@@ -1,6 +1,7 @@
 /** Client-side GitHub REST API (no backend, token stays on this device). */
 
 import { base64ToUtf8, CONTENT_REPO, utf8ToBase64 } from './state.js';
+import { resumableEntry, submitJournal } from './submit-journal.js';
 
 const API = 'https://api.github.com';
 
@@ -326,17 +327,23 @@ export class GitHubClient {
   /**
    * Create a branch, commit all files and open a pull request.
    *
+   * The submission is journaled stage by stage. If the previous attempt died
+   * after the branch was created (network drop, PR request timeout), retrying
+   * with the same branch resumes from the recorded stage instead of failing
+   * with "branch already exists" or duplicating the PR.
+   *
    * @param {object} options
    * @param {string} options.owner upstream owner
    * @param {string} options.repo upstream repository
    * @param {string} [options.baseBranch]
    * @param {string} options.branchName
-   * @param {Array<{path:string,text?:string,base64?:string}>} options.files
+   * @param {Array<{path:string,text?:string,base64?:string,deleted?:boolean}>} options.files
    * @param {string} options.commitMessage
    * @param {string} options.prTitle
    * @param {string} options.prBody
    * @param {boolean} [options.draft]
    * @param {(message:string, kind?:string) => void} [options.onProgress]
+   * @param {object} [options.journal] injected journal (tests / alternative storage)
    */
   async submitPullRequest(options) {
     const {
@@ -350,6 +357,7 @@ export class GitHubClient {
       prBody,
       draft = false,
       onProgress = () => {},
+      journal = submitJournal,
     } = options;
 
     assertContentRepo(repo);
@@ -364,88 +372,181 @@ export class GitHubClient {
     onProgress(`目标仓库：${owner}/${repo}（默认分支 ${base}）`, 'ok');
 
     const branch = branchName;
-    let headOwner = owner;
-    let forkUsed = false;
+    let resume = resumableEntry(journal?.read?.(), { owner, repo, branch });
+    let headOwner = resume?.headOwner || owner;
+    let forkUsed = Boolean(resume?.forkUsed);
+    let baseSha = resume?.baseSha || '';
+    let baseCommit = null;
 
-    const baseRef = await this.getRef(owner, repo, base);
-    let baseSha = baseRef.object.sha;
-    let baseCommit = await this.getCommit(owner, repo, baseSha);
-    onProgress(`基线提交：${baseSha.slice(0, 8)}`, 'ok');
-
-    // Try to create the branch directly on the upstream repository.
-    // Never auto-rename a conflicting branch: the UI asks the user to choose.
-    let directBranch = false;
-    try {
-      await this.createRef(owner, repo, branch, baseSha);
-      directBranch = true;
-      onProgress(`已在 ${owner}/${repo} 创建分支 ${branch}`, 'ok');
-    } catch (error) {
-      if (!(error instanceof GitHubError)) throw error;
-      if (error.status === 422 && /exists/i.test(error.message)) {
-        throw new GitHubError(`分支名「${branch}」已存在，可能由其他贡献者创建。请更换分支名后重试。`, 422, {
-          code: 'BRANCH_EXISTS',
-          branch,
+    const save = (patch) => {
+      try {
+        journal?.write?.({
           owner,
+          repo,
+          base,
+          branch,
+          headOwner,
+          forkUsed,
+          baseSha,
+          commitSha: '',
+          prNumber: 0,
+          commitMessage,
+          stage: 'start',
+          startedAt: resume?.startedAt || Date.now(),
+          ...patch,
         });
+      } catch {
+        // Journaling is best effort; never fail the submission because of it.
       }
-      if ([403, 404].includes(error.status)) {
-        onProgress('没有上游仓库写权限，切换到 Fork 流程…', 'step');
-      } else {
-        throw error;
+    };
+
+    if (resume) onProgress(`检测到上次未完成的提交（${resume.stage}），继续…`, 'step');
+
+    // Reuse the branch from an earlier attempt when it still exists.
+    let branchSha = '';
+    if (resume) {
+      try {
+        const ref = await this.getRef(headOwner, repo, branch);
+        branchSha = ref.object.sha;
+        onProgress(`复用上次创建的分支 ${branch}`, 'ok');
+      } catch (error) {
+        if (!(error instanceof GitHubError && error.status === 404)) throw error;
+        onProgress('上次创建的分支已不存在，重新开始提交…', 'step');
+        resume = null;
+        headOwner = owner;
+        forkUsed = false;
       }
     }
 
-    if (!directBranch) {
-      await this.ensureFork(owner, repo, user.login, onProgress);
-      forkUsed = true;
-      headOwner = user.login;
-      onProgress(`使用 Fork：${headOwner}/${repo}`, 'ok');
+    if (!branchSha && !resume) {
+      const baseRef = await this.getRef(owner, repo, base);
+      baseSha = baseRef.object.sha;
+      baseCommit = await this.getCommit(owner, repo, baseSha);
+      onProgress(`基线提交：${baseSha.slice(0, 8)}`, 'ok');
 
-      await this.syncFork(headOwner, repo, base);
-      const forkRef = await this.getRef(headOwner, repo, base);
-      baseSha = forkRef.object.sha;
-      baseCommit = await this.getCommit(headOwner, repo, baseSha);
-      onProgress(`Fork 已同步到 ${baseSha.slice(0, 8)}`, 'ok');
-
+      // Try to create the branch directly on the upstream repository.
+      // Never auto-rename a conflicting branch: the UI asks the user to choose.
+      let directBranch = false;
       try {
-        await this.createRef(headOwner, repo, branch, baseSha);
-        onProgress(`已在 Fork 创建分支 ${branch}`, 'ok');
+        await this.createRef(owner, repo, branch, baseSha);
+        directBranch = true;
+        save({ stage: 'branch', baseSha });
+        onProgress(`已在 ${owner}/${repo} 创建分支 ${branch}`, 'ok');
       } catch (error) {
         if (!(error instanceof GitHubError)) throw error;
         if (error.status === 422 && /exists/i.test(error.message)) {
-          throw new GitHubError(
-            `分支名「${branch}」已存在于你的 Fork（${headOwner}/${repo}）。请更换分支名后重试。`,
-            422,
-            { code: 'BRANCH_EXISTS', branch, owner: headOwner },
-          );
+          journal?.clear?.();
+          throw new GitHubError(`分支名「${branch}」已存在，可能由其他贡献者创建。请更换分支名后重试。`, 422, {
+            code: 'BRANCH_EXISTS',
+            branch,
+            owner,
+          });
         }
-        throw error;
+        if ([403, 404].includes(error.status)) {
+          onProgress('没有上游仓库写权限，切换到 Fork 流程…', 'step');
+        } else {
+          throw error;
+        }
       }
+
+      if (!directBranch) {
+        await this.ensureFork(owner, repo, user.login, onProgress);
+        forkUsed = true;
+        headOwner = user.login;
+        onProgress(`使用 Fork：${headOwner}/${repo}`, 'ok');
+
+        await this.syncFork(headOwner, repo, base);
+        const forkRef = await this.getRef(headOwner, repo, base);
+        baseSha = forkRef.object.sha;
+        baseCommit = await this.getCommit(headOwner, repo, baseSha);
+        onProgress(`Fork 已同步到 ${baseSha.slice(0, 8)}`, 'ok');
+
+        try {
+          await this.createRef(headOwner, repo, branch, baseSha);
+          save({ stage: 'branch', baseSha });
+          onProgress(`已在 Fork 创建分支 ${branch}`, 'ok');
+        } catch (error) {
+          if (!(error instanceof GitHubError)) throw error;
+          if (error.status === 422 && /exists/i.test(error.message)) {
+            journal?.clear?.();
+            throw new GitHubError(
+              `分支名「${branch}」已存在于你的 Fork（${headOwner}/${repo}）。请更换分支名后重试。`,
+              422,
+              { code: 'BRANCH_EXISTS', branch, owner: headOwner },
+            );
+          }
+          throw error;
+        }
+      }
+      branchSha = baseSha;
     }
 
-    const treeEntries = [];
-    for (const file of files) {
-      const path = file.path.replace(/^\/+/, '');
-      if (file.deleted) {
-        onProgress(`删除文件：${path}`, 'step');
-        treeEntries.push({ path, mode: '100644', type: 'blob', sha: null });
-        continue;
+    // On resume the branch tip may already contain the commit from last time.
+    const alreadyCommitted = Boolean(resume?.commitSha && resume.commitSha === branchSha);
+    const parentSha = branchSha;
+    const parentCommit = alreadyCommitted ? null : (baseCommit ?? (await this.getCommit(headOwner, repo, parentSha)));
+    let commitSha = alreadyCommitted ? branchSha : '';
+
+    if (alreadyCommitted) {
+      onProgress('上次的提交已存在，直接创建 Pull Request…', 'ok');
+    } else {
+      const treeEntries = [];
+      for (const file of files) {
+        const path = file.path.replace(/^\/+/, '');
+        if (file.deleted) {
+          onProgress(`删除文件：${path}`, 'step');
+          treeEntries.push({ path, mode: '100644', type: 'blob', sha: null });
+          continue;
+        }
+        onProgress(`上传文件：${file.path}`, 'step');
+        const content = file.base64 ?? utf8ToBase64(file.text ?? '');
+        const blobSha = await this.createBlob(headOwner, repo, content);
+        treeEntries.push({ path, mode: '100644', type: 'blob', sha: blobSha });
       }
-      onProgress(`上传文件：${file.path}`, 'step');
-      const content = file.base64 ?? utf8ToBase64(file.text ?? '');
-      const blobSha = await this.createBlob(headOwner, repo, content);
-      treeEntries.push({ path, mode: '100644', type: 'blob', sha: blobSha });
+
+      onProgress('创建 Git tree…', 'step');
+      const treeSha = await this.createTree(headOwner, repo, parentCommit.tree.sha, treeEntries);
+      onProgress('创建提交…', 'step');
+      commitSha = await this.createCommit(headOwner, repo, commitMessage, treeSha, [parentSha]);
+      save({ stage: 'committed', baseSha: parentSha, commitSha });
+      onProgress('更新分支引用…', 'step');
+      await this.updateRef(headOwner, repo, branch, commitSha);
     }
+    save({ stage: 'pr-pending', baseSha: parentSha, commitSha });
 
-    onProgress('创建 Git tree…', 'step');
-    const treeSha = await this.createTree(headOwner, repo, baseCommit.tree.sha, treeEntries);
-    onProgress('创建提交…', 'step');
-    const commitSha = await this.createCommit(headOwner, repo, commitMessage, treeSha, [baseSha]);
-    onProgress('更新分支引用…', 'step');
-    await this.updateRef(headOwner, repo, branch, commitSha);
+    const done = (pr) => {
+      journal?.clear?.();
+      return {
+        url: pr.html_url,
+        number: pr.number,
+        branch,
+        forkUsed,
+        headOwner,
+        login: user.login,
+        scopes: user.scopes,
+      };
+    };
 
+    const headQuery = `${forkUsed ? headOwner : owner}:${branch}`;
     const head = forkUsed ? `${headOwner}:${branch}` : branch;
-    const headQuery = forkUsed ? head : `${owner}:${branch}`;
+
+    // A previous attempt may have opened the PR even though the response was
+    // lost. Look it up before creating a duplicate.
+    if (resume?.prNumber) {
+      try {
+        const pr = await this.getPull(owner, repo, resume.prNumber);
+        onProgress(`上次的 PR #${pr.number} 已创建，直接返回。`, 'ok');
+        return done(pr);
+      } catch (error) {
+        if (!(error instanceof GitHubError && error.status === 404)) throw error;
+      }
+    }
+    const existing = await this.findOpenPullRequest(owner, repo, headQuery);
+    if (existing) {
+      onProgress(`已存在相同分支的 PR #${existing.number}，直接返回。`, 'ok');
+      return done(existing);
+    }
+
     onProgress(`创建 Pull Request（${head} → ${base}）…`, 'step');
     let pr;
     try {
@@ -466,14 +567,7 @@ export class GitHubClient {
       }
     }
 
-    return {
-      url: pr.html_url,
-      number: pr.number,
-      branch,
-      forkUsed,
-      headOwner,
-      login: user.login,
-      scopes: user.scopes,
-    };
+    save({ stage: 'pr-pending', baseSha: parentSha, commitSha, prNumber: pr.number });
+    return done(pr);
   }
 }

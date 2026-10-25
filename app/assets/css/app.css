@@ -463,6 +463,17 @@ select.input {
 .draft-title { font-size: 12.5px; font-weight: 600; }
 .draft-path { font-size: 11px; color: var(--text-soft); word-break: break-all; }
 .draft-meta { font-size: 10.5px; color: var(--text-faint); }
+.draft-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--text-soft);
+  vertical-align: 1px;
+}
 .draft-actions { display: flex; gap: 6px; flex: none; }
 #btn-content-drafts .badge { margin-left: 4px; }
 
@@ -1613,9 +1624,11 @@ body.modal-open { overflow: hidden; }
 }
 .toast.is-success { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
 .toast.is-error { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.toast.is-warn { border-color: color-mix(in srgb, var(--warning, #d97706) 40%, var(--border)); }
 .toast-icon { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--accent); }
 .toast.is-success .toast-icon { color: var(--success); }
 .toast.is-error .toast-icon { color: var(--danger); }
+.toast.is-warn .toast-icon { color: var(--warning, #d97706); }
 .toast.is-leaving { animation: toastOut .18s var(--ease) forwards; }
 
 /* ------------------------------------------------------------- validation */

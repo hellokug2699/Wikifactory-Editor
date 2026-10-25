@@ -2,6 +2,15 @@
 
 本文件保存 Wikifactory Editor 的历史更新记录。README 只保留最新 3 个版本的摘要。
 
+## v1.3.0 质量更新
+
+- **重命名按 Core 规则解析短链接**：`rewritePageLinks()` 不再只比较文件名。先按 Core `resolveWikiTarget` 的优先级（完整 id → 游戏 → 分类 → 当前游戏内唯一 slug → 全局唯一 → 别名）确定目标，再决定是否改写；歧义短链接保留原样并在日志、PR 说明中列出候选页面。
+- **扫描范围与覆盖率分级**：批量重命名新增「同游戏目录 / 全部页面」选项；扫描结束明确报告「完整 / 部分完成」及原因（跨游戏未检查、超出上限、读取失败、无法确定目标的短链接），并写入 PR 说明。
+- **草稿双存储**：localStorage 保留最近 30 份，IndexedDB 归档全部草稿；超出上限时提示被归档的路径，归档草稿可恢复、可导出/导入 JSON 备份；localStorage 损坏时启动自动重建。
+- **Token 密钥稳定化**：密钥派生只用安装标识 + 固定盐，不再混入语言、屏幕、时区、UA；旧记录兼容读取并自动升级；无法解密时保留记录并提示重新授权，不再静默删除。
+- **PR 提交断点续传**：新增提交日志（分支 + 阶段）。网络中断后可用「继续未完成提交」复用分支、跳过已完成提交、避免重复 PR。
+- 版本号：**1.3.0**（Android versionCode 10300）。
+
 ## v1.2.5 质量更新
 
 - **移动端差异化**：Android 新增 Intent filter —— `https://wikifactory.top/games/…`、`wikifactory-editor://open?path=…` 与 `text/markdown` 文件「用其他应用打开」。站点侧部署 `/.well-known/assetlinks.json`（由私有 Core 仓库的 `public/.well-known/assetlinks.json` 提供）并通过 App Links 校验后，`wikifactory.top/games/…` 会直接唤起 App；若校验未通过，系统会退回「用其他应用打开」的询问框（不会静默失败）。应用内点击站内链接也走同一套深链解析。网页版可用 `?path=games/…` 直达。

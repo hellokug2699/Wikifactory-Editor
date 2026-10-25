@@ -48,10 +48,20 @@ import {
   validateWithRepo,
 } from './validate.js';
 import { GitHubClient, GitHubError } from './github.js';
-import { clearToken, loadToken, saveToken, tokenStorageKind } from './secure-token.js';
+import { clearToken, loadToken, saveToken, tokenStorageKind, tokenStoreUnreadable } from './secure-token.js';
 import { buildPreview, attachToc } from './markdown.js';
 import { diffLines } from './diff.js';
-import { deleteDraft, draftCount, listDrafts, saveDraftRecord } from './drafts.js';
+import {
+  MAX_DRAFTS,
+  deleteDraft,
+  draftCount,
+  exportDraftBundle,
+  hydrateDrafts,
+  importDraftBundle,
+  listArchivedDrafts,
+  listDrafts,
+  saveDraftRecord,
+} from './drafts.js';
 import { h, raw } from './dom.js';
 import { buildPrBody, buildPrDiff, defaultBranchName, prHeadline, PR_TYPES, uniqueBranchSuggestion } from './pr.js';
 import { readRepoCache, repoCacheNote, writeRepoCache } from './repo-cache.js';
@@ -62,7 +72,16 @@ import { applyYamlChanges } from './frontmatter.js';
 import { compareVersions, desktopManifestUrl, planUpdate, releaseAsset } from './updates.js';
 import { parseDeepLink, importedPagePath } from './deep-link.js';
 import { commentSummary, mergeGuidance, reviewLabel, summarizeReview } from './review.js';
-import { linkScanTargets, pageIdOf, planRename, renamePagePath, rewritePageLinks } from './batch.js';
+import {
+  buildLinkIndex,
+  gameOf,
+  linkScanTargets,
+  pageIdOf,
+  planRename,
+  renamePagePath,
+  rewritePageLinks,
+  scanCoverage,
+} from './batch.js';
 import { mapWithConcurrency } from './async-pool.js';
 import { applyI18n, LANGS, setLang, t, tOr } from './i18n.js';
 import {
@@ -1243,17 +1262,26 @@ function saveDraft(manual = false) {
     loadedFmRaw: state.content.loadedFmRaw,
     loadedBody: state.content.loadedBody,
   });
-  if (ok && saved) dirty = false;
+  const persisted = ok && saved.ok;
+  if (persisted) dirty = false;
   updateSaveStatus();
   updateStats();
   updateDraftBadge();
-  if (manual) {
+  // The hot window is capped at MAX_DRAFTS; the evicted drafts stay in the
+  // IndexedDB archive, but the user must be told instead of finding them gone.
+  if (saved.evicted?.length) {
     toast(
-      ok && saved ? '草稿已保存到本地（可在「最近草稿」中切换）。' : '本地保存失败（可能是存储空间不足）。',
-      ok && saved ? 'success' : 'error',
+      `本地草稿已满 ${MAX_DRAFTS} 份，最旧的 ${saved.evicted.length} 份已移入本机归档：${saved.evicted.join('、')}（仍可在「最近草稿」中恢复或导出）。`,
+      'warn',
+      7000,
     );
   }
-  return ok && saved;
+  if (manual && !persisted) {
+    toast(saved.error || '本地保存失败（可能是存储空间不足）。', 'error');
+  } else if (manual && persisted) {
+    toast('草稿已保存到本地（可在「最近草稿」中切换）。', 'success');
+  }
+  return persisted;
 }
 
 function exportCurrentFile() {
@@ -2844,11 +2872,14 @@ function openSettings() {
   const rememberInput = body.querySelector('#set-remember');
   const kindLabel = body.querySelector('#token-store-kind');
   const kind = tokenStorageKind();
+  const unreadable = tokenStoreUnreadable();
   kindLabel.textContent =
     kind === 'android-keystore'
-      ? '存储：Android Keystore'
+      ? '存储：Android Keystore（密钥不可导出，可用时为硬件保护）'
       : kind === 'webcrypto'
-        ? '存储：AES-256-GCM（设备绑定）'
+        ? unreadable
+          ? '本机保存的 token 无法解密（安装标识已变化或被篡改），记录已保留；请重新填写 token。'
+          : '存储：本机标识派生的 AES-256-GCM。可防止明文读取，但不是硬件安全边界——公用设备请勿勾选「记住」。Windows 桌面版后续将改用系统凭据存储。'
         : '加密存储不可用：token 仅本次运行有效';
 
   const blockTokenCopy = (event) => {
@@ -3491,16 +3522,25 @@ function restoreDraftIntoEditor(draft) {
   saveDraft(false);
 }
 
-function openDraftsDialog() {
-  const drafts = listDrafts();
+async function openDraftsDialog() {
+  const hot = listDrafts();
+  let archived;
+  try {
+    archived = await listArchivedDrafts();
+  } catch {
+    archived = [];
+  }
+  // Archived records are no longer in the hot window but stay in IndexedDB.
+  const drafts = [...hot, ...archived];
   const body = document.createElement('div');
   const rows = drafts
     .map((draft, index) => {
       const stamp = draft.savedAt ? new Date(draft.savedAt).toLocaleString('zh-CN') : '未知时间';
       const title = draft.title || stripExt(basename(draft.path)) || '未命名页面';
+      const tag = index >= hot.length ? '<span class="draft-badge">归档</span>' : '';
       return `<div class="draft-item">
       <div class="draft-info">
-        <span class="draft-title">${escapeHtml(title)}</span>
+        <span class="draft-title">${tag}${escapeHtml(title)}</span>
         <span class="draft-path mono">${escapeHtml(draft.path)}</span>
         <span class="draft-meta">${escapeHtml(stamp)} · ${countCharacters(draft.body).characters.toLocaleString('zh-CN')} 字符</span>
       </div>
@@ -3512,19 +3552,68 @@ function openDraftsDialog() {
     })
     .join('');
 
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'application/json,.json';
+  fileInput.hidden = true;
+
   body.innerHTML = `<div class="form-grid">
     <div class="form-note is-accent">
-      草稿按页面路径分别保存在本机（最多 30 份），切换页面不会互相覆盖。待上传资源不随草稿保存，需要重新选择。
+      草稿按页面路径保存在本机：最近 ${MAX_DRAFTS} 份可直接读取，更早的移入本机归档（IndexedDB）并可随时恢复。
+      待上传资源不随草稿保存，需要重新选择。浏览器清理站点数据会同时删除草稿，重要修改请先导出备份。
     </div>
     <div class="draft-list">${rows || '<p class="empty-mini">还没有本地草稿。编辑后按 Ctrl+S 或等待自动保存。</p>'}</div>
   </div>`;
+  body.appendChild(fileInput);
 
   const modal = openModal({
     title: '最近草稿',
-    subtitle: `本机共 ${drafts.length} 份`,
+    subtitle: `本机 ${hot.length} 份${archived.length ? ` · 归档 ${archived.length} 份` : ''}`,
     body,
     size: 'wide',
-    footer: [{ label: '关闭', className: 'btn-ghost', onClick: () => modal.close() }],
+    footer: [
+      {
+        label: '导入备份',
+        className: 'btn',
+        onClick: () => fileInput.click(),
+      },
+      {
+        label: '导出备份',
+        className: 'btn',
+        onClick: async () => {
+          const bundle = await exportDraftBundle();
+          const stamp = new Date().toISOString().slice(0, 10);
+          downloadText(`wikifactory-drafts-${stamp}.json`, JSON.stringify(bundle, null, 2), 'application/json');
+          toast(`已导出 ${bundle.drafts.length} 份草稿。`, 'success');
+        },
+      },
+      { label: '关闭', className: 'btn-ghost', onClick: () => modal.close() },
+    ],
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    let payload;
+    try {
+      payload = JSON.parse(await file.text());
+    } catch {
+      toast('备份文件不是有效的 JSON。', 'error');
+      return;
+    }
+    const result = await importDraftBundle(payload);
+    if (!result.ok) {
+      toast(result.error || '导入失败。', 'error');
+      return;
+    }
+    updateDraftBadge();
+    modal.close();
+    await openDraftsDialog();
+    toast(
+      `已导入 ${result.imported} 份草稿${result.skipped ? `，跳过 ${result.skipped} 份（本机已有更新的副本）` : ''}。`,
+      'success',
+      5000,
+    );
   });
 
   body.addEventListener('click', async (event) => {
@@ -3546,7 +3635,7 @@ function openDraftsDialog() {
       if (!draft) return;
       const ok = await confirmDialog({
         title: '删除草稿？',
-        message: `将删除本机保存的 <code>${escapeHtml(draft.path)}</code> 草稿，无法撤销。`,
+        message: `将删除本机保存的 <code>${escapeHtml(draft.path)}</code> 草稿（含归档副本），无法撤销。`,
         confirmText: '删除',
         danger: true,
       });
@@ -3554,7 +3643,7 @@ function openDraftsDialog() {
       deleteDraft(draft.path);
       updateDraftBadge();
       modal.close();
-      openDraftsDialog();
+      await openDraftsDialog();
       toast('草稿已删除。', 'success');
     }
   });
@@ -3915,7 +4004,164 @@ async function openPrDialog({ prefill = null } = {}) {
     });
   });
 
-  const modal = openModal({
+  let modal = null;
+  let submitting = false;
+  /**
+   * Run the submission. The journal records branch + stage, so a retry after a
+   * network drop resumes instead of hitting "branch already exists".
+   */
+  const runSubmit = async () => {
+    if (submitting) return;
+    {
+      const branchName = body.querySelector('#pr-branch').value.trim();
+      const commitMessage = body.querySelector('#pr-commit').value.trim();
+      const prNote = body.querySelector('#pr-note').value.trim();
+      const prTitle = body.querySelector('#pr-title').value.trim();
+      const prBody = body.querySelector('#pr-body').value.trim();
+      const draft = body.querySelector('#pr-draft').checked;
+      if (!prNote) {
+        toast('请填写「说明」（必填）：简要描述本次新增 / 修改 / 修复了什么。', 'error', 4600);
+        noteInput.focus();
+        return;
+      }
+      if (!branchName || !commitMessage || !prTitle) {
+        toast('请填写分支名、提交信息与 PR 标题。', 'error');
+        return;
+      }
+      if (branchName.startsWith('/') || branchName.includes('..') || /\s/.test(branchName)) {
+        toast('分支名不合法。', 'error');
+        return;
+      }
+      submitting = true;
+      const logEl = body.querySelector('#pr-log');
+      logEl.hidden = false;
+      logEl.innerHTML = '';
+      const log = (message, kind = 'step') => {
+        const line = document.createElement('div');
+        line.className = kind;
+        line.textContent = message;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+      modal.setBusy(true);
+      try {
+        for (const asset of assets) {
+          if (!isSafeRepoPath(asset.path)) {
+            throw new Error(`待上传图片路径不合法：${asset.path}`);
+          }
+        }
+        for (const file of queueFiles) {
+          if (!isSafeRepoPath(file.path)) throw new Error(`批量页面路径不合法：${file.path}`);
+        }
+        const files = [{ path, text: doc }, ...queueFiles];
+        for (const asset of assets) files.push({ path: asset.path, base64: asset.base64 });
+        const client = new GitHubClient(sessionToken);
+        const result = await client.submitPullRequest({
+          owner: CONTENT_OWNER,
+          repo: CONTENT_REPO,
+          baseBranch: state.settings.branch || '',
+          branchName,
+          files,
+          commitMessage,
+          prTitle,
+          prBody,
+          draft,
+          onProgress: log,
+        });
+        log(`完成：PR #${result.number}`, 'ok');
+        saveDraft(false);
+        const success = document.createElement('div');
+        success.className = 'pr-success';
+        success.innerHTML = `
+            <div class="pr-success-icon">${icon('check', 26)}</div>
+            <h3>Pull Request #${result.number} 已创建</h3>
+            <p>${escapeHtml(result.forkUsed ? `通过 Fork ${result.headOwner} 提交` : '直接提交到 Content 仓库')} · 分支 ${escapeHtml(result.branch)}</p>
+            <a class="pr-success-link" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">${escapeHtml(result.url)}</a>
+          `;
+        const foot = modal.el.querySelector('.modal-foot');
+        foot.innerHTML = '';
+        const reviewButton = document.createElement('button');
+        reviewButton.type = 'button';
+        reviewButton.className = 'btn';
+        reviewButton.textContent = tOr('review.title', 'PR 审阅状态');
+        reviewButton.addEventListener('click', () => openReviewDialog());
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.className = 'btn';
+        copyButton.textContent = '复制链接';
+        copyButton.addEventListener('click', async () => {
+          await navigator.clipboard.writeText(result.url).catch(() => {});
+          toast('PR 链接已复制。', 'success');
+        });
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'btn btn-primary';
+        closeButton.textContent = '关闭';
+        closeButton.addEventListener('click', () => modal.close());
+        foot.appendChild(reviewButton);
+        foot.appendChild(copyButton);
+        foot.appendChild(closeButton);
+        modal.body.innerHTML = '';
+        modal.body.appendChild(success);
+        modal.body.appendChild(logEl);
+        rememberSessionPr(result);
+        if (batchActive) endBatchQueue();
+        assets.length = 0;
+        renderAssets();
+        toast('PR 已创建。', 'success');
+      } catch (error) {
+        const branchConflict =
+          error instanceof GitHubError &&
+          (error.code === 'BRANCH_EXISTS' || (error.status === 422 && /已存在|exists/i.test(error.message)));
+        if (branchConflict) {
+          const snapshot = {
+            branchName,
+            commitMessage,
+            prNote,
+            prType: typeSelect.value,
+            prTitle,
+            prBody,
+            draft,
+          };
+          modal.close();
+          openBranchConflictDialog({ branchName, snapshot, message: error.message });
+          return;
+        }
+        log(`失败：${error.message}`, 'err');
+        if (error instanceof GitHubError && error.status === 0) {
+          log('提示：可以先点击「保存草稿」保留本次修改，等网络恢复后再提交。', 'step');
+        }
+        modal.setBusy(false);
+        toast(error.message || '提交失败。', 'error');
+        if (error instanceof GitHubError && error.status === 401) {
+          setTimeout(() => {
+            modal.close();
+            openSettings();
+          }, 600);
+        }
+        // The journal holds the branch and the last finished stage, so a
+        // retry continues from there instead of starting over.
+        const foot = modal.el.querySelector('.modal-foot');
+        if (!foot.querySelector('[data-submit-retry]')) {
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.className = 'btn';
+          retry.dataset.submitRetry = '1';
+          retry.textContent = '继续未完成提交';
+          retry.addEventListener('click', () => {
+            retry.remove();
+            runSubmit();
+          });
+          foot.insertBefore(retry, foot.firstChild);
+          log('已记录本次提交的分支与阶段；网络恢复后点「继续未完成提交」即可接着做。', 'step');
+        }
+      } finally {
+        submitting = false;
+      }
+    }
+  };
+
+  modal = openModal({
     title: '提交 Pull Request',
     subtitle: `Content · ${CONTENT_OWNER}/${CONTENT_REPO}`,
     body,
@@ -3930,138 +4176,7 @@ async function openPrDialog({ prefill = null } = {}) {
           saveDraft(true);
         },
       },
-      {
-        label: '创建 PR',
-        className: 'btn-primary',
-        onClick: async () => {
-          const branchName = body.querySelector('#pr-branch').value.trim();
-          const commitMessage = body.querySelector('#pr-commit').value.trim();
-          const prNote = body.querySelector('#pr-note').value.trim();
-          const prTitle = body.querySelector('#pr-title').value.trim();
-          const prBody = body.querySelector('#pr-body').value.trim();
-          const draft = body.querySelector('#pr-draft').checked;
-          if (!prNote) {
-            toast('请填写「说明」（必填）：简要描述本次新增 / 修改 / 修复了什么。', 'error', 4600);
-            noteInput.focus();
-            return;
-          }
-          if (!branchName || !commitMessage || !prTitle) {
-            toast('请填写分支名、提交信息与 PR 标题。', 'error');
-            return;
-          }
-          if (branchName.startsWith('/') || branchName.includes('..') || /\s/.test(branchName)) {
-            toast('分支名不合法。', 'error');
-            return;
-          }
-          const logEl = body.querySelector('#pr-log');
-          logEl.hidden = false;
-          logEl.innerHTML = '';
-          const log = (message, kind = 'step') => {
-            const line = document.createElement('div');
-            line.className = kind;
-            line.textContent = message;
-            logEl.appendChild(line);
-            logEl.scrollTop = logEl.scrollHeight;
-          };
-          modal.setBusy(true);
-          try {
-            for (const asset of assets) {
-              if (!isSafeRepoPath(asset.path)) {
-                throw new Error(`待上传图片路径不合法：${asset.path}`);
-              }
-            }
-            for (const file of queueFiles) {
-              if (!isSafeRepoPath(file.path)) throw new Error(`批量页面路径不合法：${file.path}`);
-            }
-            const files = [{ path, text: doc }, ...queueFiles];
-            for (const asset of assets) files.push({ path: asset.path, base64: asset.base64 });
-            const client = new GitHubClient(sessionToken);
-            const result = await client.submitPullRequest({
-              owner: CONTENT_OWNER,
-              repo: CONTENT_REPO,
-              baseBranch: state.settings.branch || '',
-              branchName,
-              files,
-              commitMessage,
-              prTitle,
-              prBody,
-              draft,
-              onProgress: log,
-            });
-            log(`完成：PR #${result.number}`, 'ok');
-            saveDraft(false);
-            const success = document.createElement('div');
-            success.className = 'pr-success';
-            success.innerHTML = `
-            <div class="pr-success-icon">${icon('check', 26)}</div>
-            <h3>Pull Request #${result.number} 已创建</h3>
-            <p>${escapeHtml(result.forkUsed ? `通过 Fork ${result.headOwner} 提交` : '直接提交到 Content 仓库')} · 分支 ${escapeHtml(result.branch)}</p>
-            <a class="pr-success-link" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">${escapeHtml(result.url)}</a>
-          `;
-            const foot = modal.el.querySelector('.modal-foot');
-            foot.innerHTML = '';
-            const reviewButton = document.createElement('button');
-            reviewButton.type = 'button';
-            reviewButton.className = 'btn';
-            reviewButton.textContent = tOr('review.title', 'PR 审阅状态');
-            reviewButton.addEventListener('click', () => openReviewDialog());
-            const copyButton = document.createElement('button');
-            copyButton.type = 'button';
-            copyButton.className = 'btn';
-            copyButton.textContent = '复制链接';
-            copyButton.addEventListener('click', async () => {
-              await navigator.clipboard.writeText(result.url).catch(() => {});
-              toast('PR 链接已复制。', 'success');
-            });
-            const closeButton = document.createElement('button');
-            closeButton.type = 'button';
-            closeButton.className = 'btn btn-primary';
-            closeButton.textContent = '关闭';
-            closeButton.addEventListener('click', () => modal.close());
-            foot.appendChild(reviewButton);
-            foot.appendChild(copyButton);
-            foot.appendChild(closeButton);
-            modal.body.innerHTML = '';
-            modal.body.appendChild(success);
-            modal.body.appendChild(logEl);
-            rememberSessionPr(result);
-            if (batchActive) endBatchQueue();
-            assets.length = 0;
-            renderAssets();
-            toast('PR 已创建。', 'success');
-          } catch (error) {
-            const branchConflict =
-              error instanceof GitHubError &&
-              (error.code === 'BRANCH_EXISTS' || (error.status === 422 && /已存在|exists/i.test(error.message)));
-            if (branchConflict) {
-              const snapshot = {
-                branchName,
-                commitMessage,
-                prNote,
-                prType: typeSelect.value,
-                prTitle,
-                prBody,
-                draft,
-              };
-              modal.close();
-              openBranchConflictDialog({ branchName, snapshot, message: error.message });
-              return;
-            }
-            log(`失败：${error.message}`, 'err');
-            if (error instanceof GitHubError && error.status === 0) {
-              log('提示：可以先点击「保存草稿」保留本次修改，等网络恢复后再提交。', 'step');
-            }
-            modal.setBusy(false);
-            toast(error.message || '提交失败。', 'error');
-            if (error instanceof GitHubError && error.status === 401) {
-              setTimeout(() => {
-                modal.close();
-                openSettings();
-              }, 600);
-            }
-          }
-        },
-      },
+      { label: '创建 PR', className: 'btn-primary', onClick: () => runSubmit() },
     ],
   });
 }
@@ -4581,6 +4696,13 @@ async function openBatchDialog() {
       <span class="form-help" id="batch-count"></span>
     </div>
     <label class="check-row"><input type="checkbox" id="batch-scan-links" checked><span>${t('batch.scanLinks')}</span></label>
+    <label class="field" id="batch-scope-field" hidden>
+      <span class="form-label">${t('batch.scanScope')}</span>
+      <select class="input" id="batch-scan-scope">
+        <option value="game">${t('batch.scopeGame')}</option>
+        <option value="all">${t('batch.scopeAll')}</option>
+      </select>
+    </label>
     <div class="batch-list" id="batch-list"></div>
     <div class="progress-log" id="batch-log" hidden></div>
   </div>`;
@@ -4642,6 +4764,7 @@ async function openBatchDialog() {
     mode = button.dataset.batchMode;
     for (const item of body.querySelectorAll('[data-batch-mode]')) item.classList.toggle('is-active', item === button);
     for (const input of list.querySelectorAll('.batch-name')) input.hidden = mode !== 'rename';
+    body.querySelector('#batch-scope-field').hidden = mode !== 'rename';
   });
 
   const modal = openModal({
@@ -4691,6 +4814,7 @@ async function openBatchDialog() {
             paths,
             list,
             scanLinks: body.querySelector('#batch-scan-links').checked,
+            scanScope: body.querySelector('#batch-scan-scope').value,
             repoPaths: index.paths,
             modal,
             logEl: body.querySelector('#batch-log'),
@@ -4705,7 +4829,7 @@ async function openBatchDialog() {
 }
 
 /** Rename the selected pages, rewrite links and open one PR with every change. */
-async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl }) {
+async function runBatchRename({ paths, list, scanLinks, scanScope = 'game', repoPaths, modal, logEl }) {
   if (!sessionToken) {
     toast('批量重命名需要 GitHub token，请先在设置中填写。', 'error');
     openSettings();
@@ -4726,14 +4850,17 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
     toast('没有需要重命名的页面。', 'info', 2800);
     return;
   }
+  const coverageNote = !scanLinks
+    ? '不会扫描引用页面；只有被重命名页面自身会被更新。'
+    : scanScope === 'all'
+      ? '会扫描全部页面并改写站内链接（页面多时较慢）。'
+      : '只会扫描同游戏目录下的页面；跨游戏引用可能不会被更新。';
   const confirmed = await confirmDialog({
     title: '确认批量重命名',
     messageHtml: true,
     message: `${valid
       .map((plan) => `${escapeHtml(plan.from)} → ${escapeHtml(plan.to)}`)
-      .join(
-        '<br>',
-      )}<br>${scanLinks ? '<br>同时会扫描同游戏目录下的页面并改写站内链接。' : ''}<br><br>这会创建一个 PR。`,
+      .join('<br>')}<br><br>${escapeHtml(coverageNote)}<br><br>这会创建一个 PR。`,
     confirmText: '创建 PR',
   });
   if (!confirmed) return;
@@ -4750,23 +4877,34 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
   modal.setBusy(true);
 
   const renamedIds = valid.map((plan) => ({ fromId: pageIdOf(plan.from), toId: pageIdOf(plan.to) }));
+  // Resolve short links exactly like Core before rewriting: a shared slug must
+  // not redirect references that point at another page.
+  const linkIndex = buildLinkIndex({ repoPaths });
   const targets = scanLinks
-    ? linkScanTargets({ renamedIds: renamedIds.map((item) => item.fromId), repoPaths, extra: valid.map((p) => p.from) })
+    ? linkScanTargets({
+        renamedIds: renamedIds.map((item) => item.fromId),
+        repoPaths,
+        extra: valid.map((p) => p.from),
+        scope: scanScope,
+      })
     : valid.map((plan) => plan.from);
   const client = new GitHubClient(sessionToken);
   const bodies = new Map();
   // Bounded concurrency: a 200-page game folder would otherwise fire hundreds of
   // sequential requests and can hit GitHub's secondary rate limit.
-  const MAX_LINK_SCAN = 200;
+  const MAX_LINK_SCAN = 400;
   const scanTargets = targets.slice(0, MAX_LINK_SCAN);
-  if (targets.length > scanTargets.length) {
+  const truncated = targets.length - scanTargets.length;
+  if (truncated > 0) {
     log(`待扫描 ${targets.length} 个页面，仅处理前 ${scanTargets.length} 个；其余页面的链接未改写`, 'err');
   }
+  const failed = [];
   const loaded = await mapWithConcurrency(scanTargets, 4, async (path) => {
     try {
       const file = await client.loadFile(CONTENT_OWNER, CONTENT_REPO, path, state.settings.branch || '');
       return { path, text: file.text };
     } catch (error) {
+      failed.push(path);
       log(`跳过 ${path}：${error.message}`, 'err');
       return null;
     }
@@ -4778,13 +4916,23 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
 
   const files = [];
   let linkHits = 0;
+  const unresolved = [];
   for (const [path, text] of bodies) {
     let next = text;
     let hits = 0;
+    const currentGameId = gameOf(pageIdOf(path));
     for (const item of renamedIds) {
-      const result = rewritePageLinks(next, { fromId: item.fromId, toId: item.toId });
+      const result = rewritePageLinks(next, {
+        fromId: item.fromId,
+        toId: item.toId,
+        currentGameId,
+        index: linkIndex,
+      });
       next = result.text;
       hits += result.replacements;
+      for (const warning of result.unresolved) {
+        unresolved.push({ path, target: warning.target, candidates: warning.candidates });
+      }
     }
     const plan = valid.find((item) => item.from === path);
     if (plan) {
@@ -4798,11 +4946,30 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
       log(`更新链接 ${path}（${hits} 处）`, 'step');
     }
   }
+  for (const warning of unresolved) {
+    log(
+      `保留原样：${warning.path} 中的 [[${warning.target}]] 可能指向多个页面（${warning.candidates.join(' / ')}）`,
+      'err',
+    );
+  }
   if (!files.some((file) => file.deleted)) {
     log('未读取到待重命名页面的内容，已中止。', 'err');
     modal.setBusy(false);
     return;
   }
+
+  const coverage = scanCoverage({
+    scope: scanLinks ? scanScope : 'self',
+    planned: targets.length,
+    scanned: bodies.size,
+    failed,
+    truncated,
+    unresolved,
+  });
+  log(
+    coverage.complete ? '链接扫描：完整，引用已更新' : `链接扫描：部分完成（${coverage.problems.join('；')}）`,
+    coverage.complete ? 'ok' : 'err',
+  );
 
   const stamp = new Date().toISOString().slice(0, 10).replaceAll('-', '');
   try {
@@ -4823,6 +4990,23 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
         '',
         `由编辑器批量重命名 ${valid.length} 个页面，并改写 ${linkHits} 处站内链接。`,
         '',
+        '## 链接扫描范围',
+        '',
+        `- 范围：${scanLinks ? (scanScope === 'all' ? '全部页面' : '同游戏目录') : '只更新被重命名页面自身'}`,
+        `- 已读取：${bodies.size} / ${targets.length} 个页面${truncated ? `（${truncated} 个超出上限未读取）` : ''}`,
+        `- 状态：${coverage.complete ? '完整，引用已更新' : '部分完成'}`,
+        ...(coverage.problems.length ? ['- 未覆盖：', ...coverage.problems.map((p) => `  - ${p}`)] : []),
+        ...(unresolved.length
+          ? [
+              '',
+              '## 需要人工确认的短链接',
+              '',
+              ...unresolved.map(
+                (item) => `- \`${item.path}\`：\`[[${item.target}]]\` 可能是 ${item.candidates.join(' / ')}`,
+              ),
+            ]
+          : []),
+        '',
         '## 变更文件',
         '',
         ...valid.map((plan) => `- \`${plan.from}\` → \`${plan.to}\``),
@@ -4837,7 +5021,13 @@ async function runBatchRename({ paths, list, scanLinks, repoPaths, modal, logEl 
     log(`完成：PR #${result.number}`, 'ok');
     rememberSessionPr(result);
     modal.setBusy(false);
-    toast(`批量重命名已提交：PR #${result.number}`, 'success', 4600);
+    toast(
+      coverage.complete
+        ? `批量重命名已提交：PR #${result.number}`
+        : `批量重命名已提交（PR #${result.number}），但链接扫描只完成了一部分；请查看 PR 说明中的「未覆盖」条目。`,
+      coverage.complete ? 'success' : 'warn',
+      coverage.complete ? 4600 : 8000,
+    );
     modal.close();
     openReviewDialog();
   } catch (error) {
@@ -5211,8 +5401,13 @@ function registerServiceWorker() {
 async function boot() {
   setLang(state.settings.lang || 'zh');
   applyI18n();
+  const recovered = await hydrateDrafts().catch(() => null);
   bindEvents();
   restoreInitialUi();
+  if (recovered?.restored) {
+    toast(`本机草稿索引已损坏或为空，已从 IndexedDB 归档恢复 ${recovered.restored} 份草稿。`, 'warn', 7000);
+    updateDraftBadge();
+  }
   registerServiceWorker();
   renderQueueBadge();
   renderPrBadge();

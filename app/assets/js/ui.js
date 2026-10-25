@@ -12,7 +12,7 @@ export function toast(message, type = 'info', timeout = 3200) {
   node.className = `toast is-${type}`;
   node.setAttribute('role', 'status');
   node.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
-  const iconName = type === 'success' ? 'check' : type === 'error' ? 'alert-circle' : 'info';
+  const iconName = type === 'success' ? 'check' : type === 'error' || type === 'warn' ? 'alert-circle' : 'info';
   node.innerHTML = `<span class="toast-icon">${icon(iconName)}</span><span>${escape(message)}</span>`;
   toastRegion.appendChild(node);
   const remove = () => {

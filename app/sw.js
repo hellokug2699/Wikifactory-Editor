@@ -53,6 +53,7 @@ const CRITICAL = [
   './assets/js/review.js',
   './assets/js/secure-token.js',
   './assets/js/state.js',
+  './assets/js/submit-journal.js',
   './assets/js/toolbar.js',
   './assets/js/ui.js',
   './assets/js/updates.js',

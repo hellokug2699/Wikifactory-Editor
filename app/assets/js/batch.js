@@ -104,26 +104,114 @@ function linkKey(value) {
     .toLowerCase();
 }
 
+/** Normalize a link target the way Core does (`normalizePath` + NFC + lowercase). */
+function normalizeTarget(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+}
+
+/**
+ * Build a resolver that mirrors Core's `resolveWikiTarget` precedence
+ * (`src/lib/wiki-index.ts`):
+ *
+ *   1. full page id (exact, then case / NFC-insensitive)
+ *   2. game id
+ *   3. category key (`<game>/<category>` or a bare category in the current game)
+ *   4. unique title / file name inside the current game, then globally
+ *   5. alias (not available to the editor)
+ *
+ * The editor only knows repository paths, so step 4 uses slugs only. Renames
+ * never change frontmatter titles, so title-based links keep resolving and do
+ * not need rewriting. Anything the resolver cannot pin down is reported as
+ * `ambiguous` / `unknown` and left untouched.
+ *
+ * @param {{repoPaths?: string[]}} options
+ */
+export function buildLinkIndex({ repoPaths = [] } = {}) {
+  const byId = new Map();
+  const byIdKey = new Map();
+  const bySlug = new Map();
+  const games = new Map();
+  const categories = new Map();
+
+  for (const rawPath of repoPaths) {
+    const id = pageIdOf(rawPath);
+    if (!id) continue;
+    const segments = id.split('/');
+    const gameId = segments[0];
+    if (!gameId || segments.length < 2) continue;
+    const page = { id, gameId, slug: segments[segments.length - 1] };
+    byId.set(id, page);
+    byIdKey.set(linkKey(id), page);
+    const slugKey = linkKey(page.slug);
+    if (!bySlug.has(slugKey)) bySlug.set(slugKey, []);
+    bySlug.get(slugKey).push(page);
+    games.set(linkKey(gameId), gameId);
+    const categoryId = segments[1];
+    if (categoryId) {
+      categories.set(linkKey(`${gameId}/${categoryId}`), { gameId, id: categoryId });
+    }
+  }
+
+  return {
+    /**
+     * @param {string} rawTarget link target without anchor
+     * @param {string} currentGameId game of the page containing the link
+     * @returns {{kind:'page',id:string}|{kind:'game',id:string}|{kind:'category',id:string}|{kind:'ambiguous',candidates:string[]}|{kind:'unknown'}}
+     */
+    resolve(rawTarget, currentGameId = '') {
+      const target = normalizeTarget(rawTarget);
+      const key = linkKey(target);
+      if (!key) return { kind: 'unknown' };
+
+      const page = byId.get(target) || byIdKey.get(key);
+      if (page) return { kind: 'page', id: page.id };
+
+      const game = games.get(key);
+      if (game) return { kind: 'game', id: game };
+
+      const category =
+        (currentGameId ? categories.get(linkKey(`${currentGameId}/${target}`)) : undefined) ?? categories.get(key);
+      if (category) return { kind: 'category', id: `${category.gameId}/${category.id}` };
+
+      const candidates = bySlug.get(key) || [];
+      const sameGame = currentGameId ? candidates.filter((candidate) => candidate.gameId === currentGameId) : [];
+      if (sameGame.length === 1) return { kind: 'page', id: sameGame[0].id };
+      if (candidates.length === 1) return { kind: 'page', id: candidates[0].id };
+      if (candidates.length > 1) return { kind: 'ambiguous', candidates: candidates.map((item) => item.id) };
+      return { kind: 'unknown' };
+    },
+  };
+}
+
 /**
  * Rewrite `[[OldId]]`, `[[OldId|文字]]`, `[[OldSlug#锚点]]` to the new page.
  * Code fences and inline code are left untouched.
  *
+ * Short links are resolved with the same precedence as Core before rewriting,
+ * so a slug shared by two pages never redirects the wrong reference. Without
+ * `index` only full page ids are rewritten.
+ *
  * @param {string} text page body
- * @param {{fromId:string, toId:string}} options
- * @returns {{text:string, changed:boolean, replacements:number}}
+ * @param {{fromId:string, toId:string, currentGameId?:string, index?:object}} options
+ * @returns {{text:string, changed:boolean, replacements:number, unresolved:Array<{target:string,candidates:string[]}>}}
  */
-export function rewritePageLinks(text, { fromId, toId }) {
+export function rewritePageLinks(text, { fromId, toId, currentGameId = '', index = null }) {
   const source = String(text ?? '');
-  if (!fromId || !toId || fromId === toId) return { text: source, changed: false, replacements: 0 };
+  if (!fromId || !toId || fromId === toId) {
+    return { text: source, changed: false, replacements: 0, unresolved: [] };
+  }
   // maskCode() blanks code spans without changing length, so match offsets in
   // the masked copy map 1:1 onto the original text.
   const masked = maskCode(source);
   const fromKey = linkKey(fromId);
-  const fromSlug = linkKey(fromId.split('/').pop());
   const toSlug = toId.split('/').pop();
   let replacements = 0;
   let last = 0;
   let output = '';
+  const unresolved = [];
 
   for (const match of masked.matchAll(/\[\[([^[\]\n]+)\]\]/g)) {
     const inner = match[1];
@@ -135,33 +223,96 @@ export function rewritePageLinks(text, { fromId, toId }) {
     const target = (hash === -1 ? head : head.slice(0, hash)).trim();
     const anchor = hash === -1 ? '' : head.slice(hash);
     if (!target) continue;
-    const key = linkKey(target);
-    const isFull = key === fromKey;
-    const isSlug = !target.includes('/') && key === fromSlug;
-    if (!isFull && !isSlug) continue;
+
+    let nextTarget;
+    if (index) {
+      const resolved = index.resolve(target, currentGameId);
+      if (resolved.kind === 'page') {
+        if (linkKey(resolved.id) !== fromKey) continue;
+        nextTarget = target.includes('/') ? toId : toSlug;
+      } else if (resolved.kind === 'ambiguous') {
+        if (resolved.candidates.some((id) => linkKey(id) === fromKey)) {
+          unresolved.push({ target, candidates: resolved.candidates });
+        }
+        continue;
+      } else {
+        continue;
+      }
+    } else {
+      // No index: only an exact full id is unambiguous.
+      if (!target.includes('/') || linkKey(target) !== fromKey) continue;
+      nextTarget = toId;
+    }
+
     output += source.slice(last, match.index);
-    output += `[[${isFull ? toId : toSlug}${anchor}${label}]]`;
+    output += `[[${nextTarget}${anchor}${label}]]`;
     last = match.index + match[0].length;
     replacements += 1;
   }
 
-  if (!replacements) return { text: source, changed: false, replacements: 0 };
+  if (!replacements) return { text: source, changed: false, replacements: 0, unresolved };
   output += source.slice(last);
-  return { text: output, changed: output !== source, replacements };
+  return { text: output, changed: output !== source, replacements, unresolved };
 }
 
-/** Files that plausibly reference the renamed page: the page itself + its game folder. */
-export function linkScanTargets({ renamedIds = [], repoPaths = [], extra = [] }) {
+/**
+ * Files that may reference the renamed pages.
+ *
+ * `scope: 'game'` keeps the scan inside the affected game folders (fast but
+ * cannot see cross-game references); `scope: 'all'` scans every page.
+ */
+export function linkScanTargets({ renamedIds = [], repoPaths = [], extra = [], scope = 'game' }) {
   const games = new Set(renamedIds.map((id) => gameOf(id)));
   const out = new Set();
   for (const path of repoPaths) {
     if (!PAGE_EXT_RE.test(path)) continue;
-    if (extra.includes(path)) out.add(path);
+    if (extra.includes(path)) {
+      out.add(path);
+      continue;
+    }
+    if (scope === 'all') {
+      out.add(path);
+      continue;
+    }
     const id = pageIdOf(path);
     if (!id) continue;
     if (games.has(gameOf(id))) out.add(path);
   }
   return [...out].sort();
+}
+
+/**
+ * Describe how complete a link scan was.
+ *
+ * The dangerous state is a partial scan the contributor believes to be
+ * complete, so every gap is listed explicitly.
+ *
+ * @returns {{status:'complete'|'partial', complete:boolean, problems:string[], planned:number, scanned:number}}
+ */
+export function scanCoverage({
+  scope = 'game',
+  planned = 0,
+  scanned = 0,
+  failed = [],
+  truncated = 0,
+  unresolved = [],
+} = {}) {
+  const problems = [];
+  if (scope === 'self') problems.push('未扫描引用页面：已关闭「同时更新引用这些页面的站内链接」');
+  else if (scope !== 'all') problems.push('只扫描了被重命名页面所属的游戏目录，跨游戏引用未检查');
+  if (truncated > 0) problems.push(`${truncated} 个页面超出单次扫描上限，未读取`);
+  if (failed.length)
+    problems.push(`${failed.length} 个页面读取失败：${failed.slice(0, 5).join('、')}${failed.length > 5 ? '…' : ''}`);
+  if (unresolved.length) {
+    problems.push(`${unresolved.length} 处短链接无法唯一确定目标，已保留原样`);
+  }
+  return {
+    status: problems.length ? 'partial' : 'complete',
+    complete: problems.length === 0,
+    problems,
+    planned,
+    scanned,
+  };
 }
 
 export function renameSummary(plan) {
